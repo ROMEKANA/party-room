@@ -6,7 +6,7 @@ export const TIERS = {
   easy: ['A', 'B', 'C'], normal: ['S', 'A', 'B', 'C', 'D'],
   hard: ['SS', 'S', 'A', 'B', 'C', 'D', 'E'],
 };
-export const MODES = {1:'みんなでTier表', 2:'親がTierを当てる', 3:'親がお題を当てる'};
+export const MODES = {1:'みんなでtier表', 2:'tier並び当て', 3:'tierお題当て'};
 export const DEFAULTS = {
   mode:1, difficulty:'normal', cardsPerPlayer:3, randomMode:'balanced',
   edgePrerequisites:true, mode1Lives:3, mode1Wrong:'reveal',

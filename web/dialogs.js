@@ -128,10 +128,10 @@ export function dialogs(getState,send) {
       input.dataset.key = String(r.input?.id ?? r.id);
       input.value = drafts.get(input.dataset.key) ?? '';
       input.autocomplete = 'off';
-      input.setAttribute('aria-label',isTopic?'自由入力のお題':'単語');
+      input.setAttribute('aria-label',isTopic?'自分で入力':'単語');
       if (isTopic) {
         const random = el('section','topic-random');
-        random.append(el('h3','topic-label','内蔵のお題'),el('p','dialog-word',r.candidate),
+        random.append(el('h3','topic-label','用意されたお題から'),el('p','dialog-word',r.candidate),
           actionRow(button('引き直す',()=>act('reroll')),
             button('このお題で確定',()=>act('topic',{source:'random'}),'primary')));
         body.append(random);
@@ -155,13 +155,13 @@ export function dialogs(getState,send) {
         const ok = await (isTopic ? act('topic',{source:'custom',word}) : act('word',{card:r.input.id,word}));
         if (ok) drafts.delete(input.dataset.key);
       };
-      if (isTopic) form.append(el('h3','topic-label','自由入力'));
+      if (isTopic) form.append(el('h3','topic-label','自分で入力'));
       form.append(input,submit);
       body.append(form);
       if (focused) input.focus({preventScroll:true});
     } else if (kind==='vote') {
       text('「'+r.current.word+'」 → '+r.proposal.tier,'dialog-word');
-      text('Badが半数に達すると即否決。それまでは全員の投票を待ちます。');
+      text('Goodが過半数で可決');
       actions(button('👍 Good',()=>act('vote',{proposal:r.proposal.id,choice:'good'}),'vote good'),
         button('👎 Bad',()=>act('vote',{proposal:r.proposal.id,choice:'bad'}),'vote bad'));
     } else if (kind==='confirm') {
@@ -195,13 +195,14 @@ export function dialogs(getState,send) {
       if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
     } else if (kind==='rules') {
       const pages = [
-        ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。ゲームに制限時間はありません。'],
-        ['みんなでTier表','手番の人が秘密Tierに沿って単語を出します。他の人が配置を提案します。Badが投票対象の半数に達するとすぐに否決され、承認できる場合は全員の投票後に判定します。間違えるとライフが減ります。'],
-        ['親がTierを当てる','子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。完璧モードは全問正解、正答率モードは設定した割合を目指します。'],
-        ['親がお題を当てる','子が提出するたびに正解Tierへカードが加わります。親は完成した表を見て口頭で回答し、お題の担当者が判定します。'],
+        ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。'],
+        [MODES[1],'手番の人が秘密Tierに沿って単語を出し、他の人が配置を提案します。Goodが過半数で可決され、配置が合っているか判定します。間違えるとライフが減ります。'],
+        [MODES[2],'子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。完璧モードは全問正解、正答率モードは設定した割合を目指します。'],
+        [MODES[3],'子が提出するたびに正解Tierへカードが加わります。親は完成した表を見て口頭で回答し、お題の担当者が判定します。'],
       ];
-      actions(...pages.map((_,i)=>button(i===0?'共通':String(i),()=>{tab=i;render(true);},i===tab?'selected control':'control')));
-      text(pages[tab][0],'dialog-word');
+      const tabs = el('div','action-row rule-tabs');
+      tabs.append(...pages.map(([name],i)=>button(name,()=>{tab=i;render(true);},i===tab?'selected control':'control')));
+      body.append(tabs);
       text(pages[tab][1]);
     } else if (kind==='menu') {
       text('参加名  '+s.me);
@@ -295,10 +296,17 @@ function settings(body,s,tab,onTab,change) {
     select('入力中にTier表を確認','peekBoardWhileTyping',[[true,'ON'],[false,'OFF']]);
   } else {
     select('Tier抽選','randomMode',[['random','完全ランダム'],['balanced','できるだけ均等'],['centerWeighted','真ん中多め']]);
+    body.append(el('p','dialog-copy','どの方法でも、すべてのランクに必ず1枚以上入ります。'));
+    const methods = el('dl','draw-help');
+    for (const [method,meaning] of [
+      ['完全ランダム','残りを各ランクに同じ確率で割り振ります。'],
+      ['できるだけ均等','ランクごとの枚数の差を1枚以内にします。'],
+      ['真ん中多め','残りは中央に近いランクほど当たりやすくなります。'],
+    ]) methods.append(el('dt','',method),el('dd','',meaning));
+    body.append(methods);
     if (st.mode===1 && st.difficulty==='hard') {
       select('端Tierの出現順を制限','edgePrerequisites',[[true,'ON'],[false,'OFF']]);
       body.append(el('p','dialog-copy','ONの場合、SSはSが、EはDが一度出てから登場します。配布枚数は変わりません。'));
     }
-    body.append(el('p','dialog-copy','制限時間は無制限です。'));
   }
 }

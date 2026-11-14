@@ -25,7 +25,6 @@ export function mode1(r, id, a, host) {
       const eligibleCount = r.ids.length - 1;
       if (votes.filter(v => v === 'bad').length >= Math.ceil(eligibleCount / 2)) {
         r.proposal = null;
-        r.votes = {};
         r.feedback = {rejected:true};
         phase(r, 'placement');
       } else if (votes.length === eligibleCount) {
