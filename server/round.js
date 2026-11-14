@@ -105,6 +105,16 @@ export function orderedCards(r, peek = false) {
   });
   return r.tiers.flatMap(tier => cards.filter(c => (peek ? c.answer : c.placed) === tier));
 }
+export function lifeStatus(r) {
+  if (r.mode === 1) return {lives:r.lives,initialLives:r.settings.mode1Lives};
+  if (r.mode === 3) return {lives:r.lives,initialLives:1};
+  if (r.settings.mode2Rule === 'accuracy') {
+    return {lives:r.result?.win === false ? 0 : 1,initialLives:1};
+  }
+  const initialLives = r.settings.mode2Attempts;
+  const failedAttempts = r.attempts - Number(r.feedback?.win === true);
+  return {lives:Math.max(0,initialLives - failedAttempts),initialLives};
+}
 export const finish = (r, win) => {
   r.result = {win};
   phase(r, 'result');

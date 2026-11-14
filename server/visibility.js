@@ -1,5 +1,5 @@
 import {connected, isOnline} from './room.js';
-import {currentInput, orderedCards} from './round.js';
+import {currentInput, lifeStatus, orderedCards} from './round.js';
 import {judgeId} from './mode23.js';
 import {DEFAULTS,TIERS,startProblem} from '../web/config.js';
 
@@ -56,7 +56,7 @@ export function visible(s, id, now) {
     turn:r.mode === 1 ? current.owner : null,
     total:r.cards.length, submitted:r.cards.filter(c => c.word).length,
     fixed:r.cards.filter(c => c.fixed).length,
-    lives:r.lives, initialLives:r.mode === 1 ? r.settings.mode1Lives : r.mode === 3 ? 1 : null,
+    ...lifeStatus(r),
     misses:r.misses, attempts:r.attempts,
     input:input ? {id:input.id,tier:input.answer} : null,
     current:showWords && current?.word ? cardView(current) : null,

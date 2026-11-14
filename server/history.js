@@ -1,4 +1,4 @@
-import {orderedCards} from './round.js';
+import {lifeStatus, orderedCards} from './round.js';
 
 const HISTORY_MS = 30 * 60 * 1000;
 
@@ -16,7 +16,7 @@ export function snapshot(s, now) {
   };
   const cards = orderedCards(r).map(({id,word,owner,placed,answer}) => ({id,word,owner,placed,answer}));
   const result = {
-    win:r.result.win, lives:r.lives, initialLives:r.mode === 1 ? r.settings.mode1Lives : r.mode === 3 ? 1 : null,
+    win:r.result.win, ...lifeStatus(r),
     fixed:r.cards.filter(c => c.fixed).length, submitted:r.cards.filter(c => c.word).length,
     misses:r.misses, attempts:r.attempts,
     ...(r.mode === 2 ? {correctCount:r.feedback.score,

@@ -113,6 +113,9 @@ async function round(mode,extra={}) {
 test('mode 2 perfect and accuracy through independent HTTP sessions',async()=>{
   for (const mode2Rule of ['perfect','accuracy']) {
     const {h,host,players,parent,setter,topic}=await round(2,{mode2Rule,mode2Attempts:2,mode2Target:70});
+    const initial = mode2Rule==='perfect' ? 2 : 1;
+    const start = (await parent.state()).round;
+    assert.deepEqual([start.lives,start.initialLives],[initial,initial]);
     await setter.send('topic',{word:topic});
     let seq=0;
     for (const child of Object.values(players).filter(p=>p!==parent)) {
@@ -149,6 +152,8 @@ test('mode 2 perfect and accuracy through independent HTTP sessions',async()=>{
       r=(await child.state()).round;
       assert.equal(r.phase,'attemptResult');
       assert.ok(r.feedback.score<4);
+      assert.deepEqual([r.lives,r.initialLives],[1,2]);
+      assert.deepEqual((await activeHost.history()).record,[]);
       assert.ok(r.cards.every(c=>!Object.hasOwn(c,'answer')));
       await activeHost.send('next');
       for (const card of h.raw().round.cards) {
@@ -162,6 +167,9 @@ test('mode 2 perfect and accuracy through independent HTTP sessions',async()=>{
     assert.equal(r.phase,'result');
     assert.equal(r.result.win,true);
     assert.ok(r.cards.every(c=>c.answer===c.placed));
+    assert.deepEqual([r.lives,r.initialLives],[1,initial]);
+    const saved = (await activeHost.history(r.id)).record.result;
+    assert.deepEqual([saved.lives,saved.initialLives],[1,initial]);
     assert.equal((await activeHost.send('lobby')).status,200);
   }
 });
@@ -423,4 +431,40 @@ test('mode 2 appends a repositioned card to the end of the target tier in play a
   const saved = (await host.history(final.id)).record;
   assert.deepEqual(saved.cards.map(c=>c.id),[...rest,first]);
   assert.ok(saved.players.every(p=>!Object.hasOwn(p,'score')));
+  assert.deepEqual([final.lives,final.initialLives],[0,1]);
+  assert.deepEqual([saved.result.lives,saved.result.initialLives],[0,1]);
+});
+
+test('mode 2 perfect history saves the last submission even when a previous answer scored higher',async()=>{
+  const {h,host,parent,players,setter}=await round(2,{mode2Attempts:3});
+  await setter.send('topic',{word:'最後の回答'});
+  for (const child of Object.values(players).filter(player=>player!==parent)) {
+    for (let i=0;i<2;i++) {
+      const {input} = (await child.state()).round;
+      await child.send('word',{card:input.id,word:child.name+i});
+    }
+  }
+  const wrongTier = card=>['A','B','C'].find(tier=>tier!==card.answer);
+  const cards = h.raw().round.cards;
+  for (const id of h.raw().round.queue) {
+    const card = cards.find(c=>c.id===id);
+    await parent.send('place',{card:id,tier:card===cards[0]?wrongTier(card):card.answer});
+  }
+  for (let attempt=1;attempt<=3;attempt++) {
+    if (attempt>1) {
+      const card = cards[attempt-1];
+      await parent.send('select',{card:card.id});
+      await parent.send('place',{card:card.id,tier:wrongTier(card)});
+    }
+    assert.equal((await parent.send('submit')).status,200);
+    const result = (await host.state()).round;
+    assert.deepEqual([result.lives,result.initialLives,result.feedback.score],[3-attempt,3,4-attempt]);
+    assert.deepEqual((await host.history()).record,[]);
+    await host.send('next');
+  }
+  const final = (await host.state()).round;
+  assert.equal(final.result.win,false);
+  const saved = (await host.history(final.id)).record;
+  assert.deepEqual([saved.result.lives,saved.result.initialLives,saved.result.correctCount],[0,3,1]);
+  assert.deepEqual(saved.cards.map(c=>[c.id,c.placed]),final.cards.map(c=>[c.id,c.placed]));
 });
