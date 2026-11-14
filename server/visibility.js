@@ -1,0 +1,62 @@
+import {connected, isOnline} from './room.js';
+import {currentInput} from './round.js';
+import {judgeId} from './mode23.js';
+import {TIERS,startProblem} from '../web/config.js';
+
+export function visible(s, id, now) {
+  const r = s.round;
+  const state = {
+    me:id, host:s.host, settings:s.settings,
+    tiers:TIERS[(r?.settings ?? s.settings).difficulty],
+    startProblem:startProblem(s.settings,connected(s,now).length),
+    players:s.players.filter(p => !p.left || r?.ids.includes(p.id)).map(p => {
+      const remaining = r?.cards.filter(c => c.owner === p.id && !c.word).length;
+      let mark = null;
+      if (r?.mode === 1) {
+        if (Object.hasOwn(r.votes,p.id)) mark = r.votes[p.id];
+        else if (r.cards[r.turn].owner === p.id && r.cards[r.turn].word) mark = 'done';
+      } else if (r?.phase === 'input' && r.ids.includes(p.id) && p.id !== r.parent) {
+        mark = remaining || 'done';
+      }
+      return {id:p.id,color:p.color,online:isOnline(p,now),left:p.left,mark,
+        spectator:Boolean(r && !r.ids.includes(p.id))};
+    }),
+    round:null,
+  };
+  if (!r) return state;
+  const participant = r.ids.includes(id);
+  const result = r.phase === 'result';
+  const current = r.mode === 1 ? r.cards[r.turn] : r.cards.find(c => c.id === r.queue[0]);
+  const input = participant ? currentInput(r,id) : null;
+  const showTopic = r.mode !== 3 || result || (participant && id !== r.parent);
+  const showWords = r.mode !== 2 || !['topic','input'].includes(r.phase);
+  const cardView = c => ({
+    id:c.id, owner:c.owner, word:c.word, placed:c.placed, fixed:c.fixed,
+    ...(result ? {answer:c.answer} : {}),
+  });
+  const cards = showWords ? r.cards.filter(c => c.word).map(cardView) : [];
+  if (r.mode === 1 && r.proposal) {
+    const proposed = cards.find(c => c.id === current.id);
+    proposed.placed = r.proposal.tier;
+    proposed.provisional = true;
+  }
+  state.round = {
+    id:r.id, version:r.version, mode:r.mode, phase:r.phase, parent:r.parent, setter:r.setter,
+    topic:showTopic ? r.topic : null,
+    ...(r.phase === 'topic' && id === r.setter ? {candidate:r.candidate} : {}),
+    turn:r.mode === 1 ? current.owner : null,
+    total:r.cards.length, submitted:r.cards.filter(c => c.word).length,
+    fixed:r.cards.filter(c => c.fixed).length,
+    lives:r.lives, misses:r.misses, attempts:r.attempts,
+    input:input ? {id:input.id,tier:input.answer} : null,
+    current:showWords && current?.word ? cardView(current) : null,
+    cards, excluded:r.excluded, feedback:r.feedback, result:r.result,
+    ...(result && r.mode === 1 ? {history:r.history ?? []} : {}),
+    proposal:r.proposal, vote:participant && id !== current?.owner && r.phase === 'vote' &&
+      !Object.hasOwn(r.votes,id), canPlace:participant && r.phase === 'placement' &&
+      (r.mode === 1 ? id !== current.owner : id === r.parent),
+    canJudge:r.phase === 'oral' && id === judgeId(s,r,now),
+    canSubmit:r.mode === 2 && r.phase === 'placement' && id === r.parent && !r.queue.length,
+  };
+  return state;
+}

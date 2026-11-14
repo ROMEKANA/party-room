@@ -1,11 +1,19 @@
 # Tier Studio
-Mobile portrait-first tier list. Buildless ES modules deployed from dist/.
 
-- `model.js`: tier definitions, card data, state transitions, versioned local storage.
-- `app.js`: DOM views and interaction handlers. Current card is the first unassigned card; selecting a ranked card enters move mode.
-- `style.css`: responsive viewport layout and design tokens. Board uses remaining height in 100dvh; ResizeObserver calculates tile size per row including wrapping.
-- `index.html`: accessible page shell and editor.
+既存の Tier Studio をベースにした、最大10人・単一ルームの Tier 表予想ゲームです。
 
-The main page never scrolls. Card editor is a bounded modal with its own text area. Default demo has 12 food cards; custom sets support 1–30 cards. All cards remain visible at the cost of small labels in dense rows. No multiplayer or cloud state in this version.
+- `web/` は既存の配色・行・カードを使った、スマホ縦画面優先の UI です。
+- `server/` はルーム管理、Tier 抽選、各モードの進行、プレイヤー別の公開範囲、API、永続化を分離しています。
+- Sites の Worker は D1 の単一行をルームの正本とし、リビジョン付き更新で競合を解決します。画面表示中は約450ms間隔で HTTP 同期します。ブラウザを閉じた場合はハートビートで切断を検出し、その後30秒のホスト復帰猶予があります。
+- 表示名は端末に保存します。サーバーが発行する接続IDはタブ単位です。同名で参加すると仕様どおり接続を切り替えます。
+- モード1の Good/Bad は投票したプレイヤー別に即時同期します。
 
-Run through any static server with dist as root. No dependencies/build step. Extend TIERS for ranks, model for rules, and views separately. State storage uses version 1; future incompatible changes should migrate or increment its schema.
+## 確認環境
+
+Node.js 24 で `npm run dev`。ローカル SQLite を使い、サーバーを再起動してもルームを保持します。同一ネットワークからは開発機のアドレスの4173番ポートで参加できます。
+
+`npm test` は Worker 成果物をビルドして、ゲームルールと複数の独立した HTTP 接続を検証します。各人に返るレスポンスに未公開の単語・正解 Tier・お題が入っていないことも確認します。
+
+## Sites
+
+`npm run build` は `dist/server/index.js` に Worker を生成します。ホスティング構成は既存のプロジェクトIDを保持し、D1 の論理バインディング名を `DB` にしています。初回デプロイ時に `drizzle/0000_room.sql` が必要です。公開前はローカル環境のデータを使用し、本番のルームには流用しません。
