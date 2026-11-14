@@ -1,21 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../dist/server/index.js';
 import {api} from '../server/api.js';
 
 function harness() {
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(readFileSync(new URL('../drizzle/0000_room.sql',import.meta.url),'utf8'));
-  const db = {prepare(sql) {
-    const statement = sqlite.prepare(sql);
-    const query = args => ({
-      async first() {await Promise.resolve();return statement.get(...args)??null;},
-      async run() {await Promise.resolve();return {meta:statement.run(...args)};},
-    });
-    return {...query([]),bind:(...args)=>query(args)};
-  }};
+  const directory = new URL('../drizzle/',import.meta.url);
+  for (const file of readdirSync(directory).filter(name => name.endsWith('.sql')).sort()) {
+    sqlite.exec(readFileSync(new URL(file,directory),'utf8'));
+  }
+  const db = {
+    async batch(queries) {
+      sqlite.exec('BEGIN');
+      try {
+        const results = queries.map(query => query.execute());
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (error) {
+        sqlite.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    prepare(sql) {
+      const statement = sqlite.prepare(sql);
+      const query = args => {
+        const execute = () => ({meta:statement.run(...args)});
+        return {
+          execute,
+          async first() {return statement.get(...args) ?? null;},
+          async all() {return {results:statement.all(...args)};},
+          async run() {return execute();},
+        };
+      };
+      return {...query([]),bind:(...args)=>query(args)};
+    },
+  };
   let now = 100;
   const req = async (route, payload, token) => {
     const request = new Request('https://tier.test/api/'+route,{
@@ -30,14 +51,15 @@ function harness() {
     if (!result.token) return result;
     const {token} = result;
     const get = ()=>req('state',null,token);
+    const history = id=>req(id ? 'history/'+id : 'history',null,token);
     const send = async (type,fields={},base) => {
       const r = base === undefined ? (await get()).state?.round : base;
       return req('action',{id:crypto.randomUUID(),round:r?.id??null,version:r?.version??0,type,...fields},token);
     };
-    return {name,token,get,send,state:async()=>(await get()).state};
+    return {name,token,get,history,send,state:async()=>(await get()).state};
   }
   const raw = () => JSON.parse(sqlite.prepare('SELECT state FROM room').get().state);
-  return {join,raw,advance:ms=>{now+=ms;},db};
+  return {join,raw,req,advance:ms=>{now+=ms;},db};
 }
 
 test('Worker artifact serves UI, stores game in database binding and isolates public asset paths',async()=>{
@@ -163,7 +185,10 @@ test('mode 3 hides topics and authors until results, with incremental placement 
       assert.ok(r.cards.every(c=>!Object.hasOwn(c,'owner')));
       const parentState=await parent.state();
       assert.ok(parentState.players.every(p=>p.mark===null));
-      assert.deepEqual(r.cards.map(c=>c.id),r.cards.map(c=>c.id).sort());
+      for (const tier of parentState.tiers) {
+        const words = r.cards.filter(c=>c.placed===tier).map(c=>c.word);
+        assert.deepEqual(words,[...words].sort());
+      }
       const authored=(await child.state()).round.cards.find(c=>c.id===input.id);
       assert.equal(authored.owner,child.name);
       assert.equal(r.topic,null);
@@ -291,4 +316,111 @@ test('mode 2 input preview shows guesses at assigned tiers only to children when
     for (const player of [parent,watcher]) assert.deepEqual((await player.state()).round.cards,[]);
     assert.equal(h.raw().round.cards.find(c=>c.id===submitted.id).placed,null);
   }
+});
+
+test('scoring is private until the final result, awards only the successful vote, and survives a life loss in history',async()=>{
+  const {h,host,players,setter}=await round(1,{mode1Scoring:true,mode1Lives:2,mode1Wrong:'retry'});
+  await setter.send('topic',{word:'得点確認'});
+  async function write(word) {
+    const card = h.raw().round.cards[h.raw().round.turn];
+    await players[card.owner].send('word',{card:card.id,word});
+    return card;
+  }
+  async function vote(card,tier,choice = 'good') {
+    const voters = Object.values(players).filter(p=>p.name!==card.owner);
+    assert.equal((await voters[0].send('propose',{card:card.id,tier})).status,200);
+    const base = (await host.state()).round;
+    const replies = await Promise.all(voters.slice(0,choice==='bad'?1:2)
+      .map(p=>p.send('vote',{proposal:base.proposal.id,choice},base)));
+    assert.ok(replies.every(r=>r.status===200));
+  }
+  const first = await write('最初');
+  await vote(first,first.answer,'bad');
+  assert.ok(Object.values(h.raw().round.scores).every(score=>score===0));
+  await vote(first,['A','B','C'].find(tier=>tier!==first.answer));
+  assert.ok(Object.values(h.raw().round.scores).every(score=>score===0));
+  assert.equal((await host.state()).round.lives,1);
+  await host.send('next');
+  await vote(first,first.answer);
+  assert.equal(Object.hasOwn((await host.state()).round,'scores'),false);
+  assert.deepEqual((await host.history()).record,[]);
+  await host.send('next');
+  const second = await write('最後');
+  await vote(second,['A','B','C'].find(tier=>tier!==second.answer));
+  const final = (await host.state()).round;
+  assert.equal(final.phase,'result');
+  assert.equal(final.lives,0);
+  assert.equal(final.initialLives,2);
+  assert.equal(final.scores[first.owner],2);
+  assert.equal(Object.values(final.scores).reduce((sum,score)=>sum+score,0),4);
+  const watcher = await h.join('あとから');
+  const list = (await watcher.history()).record;
+  assert.equal(list.length,1);
+  assert.equal(list[0].id,final.id);
+  const saved = (await watcher.history(final.id)).record;
+  assert.deepEqual(saved.players.map(p=>p.score).sort(),[1,1,2]);
+  assert.equal(saved.result.misses,2);
+  assert.equal(saved.result.fixed,1);
+  assert.equal(saved.result.win,false);
+  assert.equal(saved.cards.find(c=>c.word==='最後').owner,second.owner);
+  assert.equal(Object.hasOwn(saved,'votes'),false);
+  assert.ok(saved.cards.every(c=>!Object.hasOwn(c,'position')));
+  assert.equal((await h.req('history',null)).status,401);
+  assert.equal((await watcher.send('resetHistory')).status,403);
+  assert.equal((await host.send('resetHistory')).status,200);
+  assert.deepEqual((await watcher.history()).record,[]);
+  assert.equal((await watcher.history(final.id)).status,404);
+  assert.deepEqual((await host.state()).round.scores,final.scores);
+});
+
+test('history omits unfinished rounds, expires after 30 minutes, and is deleted upon access',async()=>{
+  const {h,host,parent,players,setter}=await round(3);
+  assert.equal((await parent.state()).round.initialLives,1);
+  await setter.send('topic',{word:'消える履歴'});
+  for (const player of Object.values(players).filter(p=>p!==parent)) {
+    for (let i=0;i<2;i++) {
+      const {input} = (await player.state()).round;
+      await player.send('word',{card:input.id,word:player.name+i});
+    }
+  }
+  await setter.send('judge',{win:false});
+  const {id} = (await host.state()).round;
+  assert.equal((await host.history(id)).record.result.lives,0);
+  assert.equal((await host.history(id)).record.result.initialLives,1);
+  await host.send('start');
+  await host.send('end');
+  assert.deepEqual((await host.history()).record.map(record=>record.id),[id]);
+  h.advance(30*60*1000-1);
+  assert.equal((await host.history(id)).status,200);
+  h.advance(1);
+  await (await h.join('新しい参加者')).get();
+  assert.equal(await h.db.prepare('SELECT * FROM round_history').first(),null);
+  assert.equal((await host.history(id)).status,404);
+});
+
+test('mode 2 appends a repositioned card to the end of the target tier in play and history',async()=>{
+  const {host,parent,players,setter}=await round(2,{mode2Rule:'accuracy'});
+  await setter.send('topic',{word:'配置順'});
+  for (const player of Object.values(players).filter(p=>p!==parent)) {
+    for (let i=0;i<2;i++) {
+      const {input} = (await player.state()).round;
+      await player.send('word',{card:input.id,word:player.name+i});
+    }
+  }
+  const order = [];
+  for (let i=0;i<4;i++) {
+    const {current} = (await parent.state()).round;
+    order.push(current.id);
+    await parent.send('place',{card:current.id,tier:'A'});
+  }
+  assert.deepEqual((await host.state()).round.cards.map(c=>c.id),order);
+  const [first,...rest] = order;
+  await parent.send('select',{card:first});
+  await parent.send('place',{card:first,tier:'A'});
+  await parent.send('submit');
+  const final = (await host.state()).round;
+  assert.deepEqual(final.cards.map(c=>c.id),[...rest,first]);
+  const saved = (await host.history(final.id)).record;
+  assert.deepEqual(saved.cards.map(c=>c.id),[...rest,first]);
+  assert.ok(saved.players.every(p=>!Object.hasOwn(p,'score')));
 });

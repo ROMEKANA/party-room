@@ -15,10 +15,10 @@ export function button(text, callback, cls = 'control') {
 const PALETTE = ['#edaa9e','#eac38e','#e8d68d','#b9d39c','#9dcbb8','#a1c8d6','#adbfe1','#c3b3de','#e2b4ca','#cdb5a2'];
 const MARKS = {good:'👍',bad:'👎',done:'✓'};
 export const short = name => [...(name??'')].slice(0,6).join('');
-export function avatars(s) {
+export function avatars(s,root = $('players')) {
   const players = s.players.filter(p=>!p.left);
-  $('players').style.setProperty('--people',Math.min(5,players.length));
-  $('players').replaceChildren(...players.map(p => {
+  root.style.setProperty('--people',Math.min(5,players.length));
+  root.replaceChildren(...players.map(p => {
     const person = el('div','person'+(p.online?'':' offline'));
     const roles = [p.id===s.host?'ホスト':'',p.id===s.round?.parent?'親':'',
       p.id===s.round?.turn?'手番':'',p.spectator?'観戦':''].filter(Boolean);
@@ -30,7 +30,15 @@ export function avatars(s) {
       circle.append(mark);
     }
     person.title = [p.id,...roles,...(p.online?[]:['切断中'])].join('・');
-    person.append(circle,el('span','player-name',short(p.id)),el('small','roles',roles.join('・')));
+    person.append(circle);
+    const scores = s.round?.scores;
+    const score = scores && !p.spectator && Object.hasOwn(scores,p.id) ? scores[p.id] : undefined;
+    if (score != null) {
+      const value = el('span','player-score',score);
+      value.setAttribute('aria-label',score+'点');
+      person.append(value);
+    }
+    person.append(el('span','player-name',short(p.id)),el('small','roles',roles.join('・')));
     return person;
   }));
 }
@@ -45,30 +53,8 @@ export function board(state,onCard) {
   const root = $('board');
   const newPositions = new Map();
   lastBoard = key;
-  root.replaceChildren(...state.tiers.map(tier => {
-    const row = el('div','tier');
-    row.style.setProperty('--tier',COLORS[tier]);
-    const label = el('div','tier-label');
-    label.append(el('strong','',tier));
-    const area = el('div','tier-content');
-    const inside = cards.filter(c=>c.placed===tier);
-    row.style.flexGrow = String(1+Math.sqrt(inside.length)*.27);
-    if (!inside.length) area.append(el('span','empty','＋'));
-    for (const card of inside) {
-      const answer = card.answer && card.answer!==tier ? card.answer : null;
-      const cls = 'tile'+(card.provisional?' provisional':'')+(answer?' wrong':'');
-      const tile = button('',()=>onCard(card),cls);
-      tile.title = card.word;
-      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:''));
-      tile.append(el('span','name',card.word));
-      if (answer) tile.append(el('span','answer-chip',answer));
-      area.append(tile);
-      newPositions.set(card.id,{tier,tile});
-    }
-    row.append(label,area);
-    return row;
-  }));
-  fit();
+  drawRows(root,state.tiers,cards,onCard,newPositions);
+  fit(root);
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
     for (const [id,{tier,tile}] of newPositions) {
       const previous = positions.get(id);
@@ -88,8 +74,33 @@ export function board(state,onCard) {
   }
   positions = new Map([...newPositions].map(([id,{tier,tile}])=>[id,{tier,rect:tile.getBoundingClientRect()}]));
 }
-export function fit() {
-  for (const area of document.querySelectorAll('.tier-content')) {
+export function drawRows(root,tiers,cards,onCard,positions) {
+  root.replaceChildren(...tiers.map(tier => {
+    const row = el('div','tier');
+    row.style.setProperty('--tier',COLORS[tier]);
+    const label = el('div','tier-label');
+    label.append(el('strong','',tier));
+    const area = el('div','tier-content');
+    const inside = cards.filter(c=>c.placed===tier);
+    row.style.flexGrow = String(1+Math.sqrt(inside.length)*.27);
+    if (!inside.length) area.append(el('span','empty','＋'));
+    for (const card of inside) {
+      const answer = card.answer && card.answer!==tier ? card.answer : null;
+      const cls = 'tile'+(card.provisional?' provisional':'')+(answer?' wrong':'');
+      const tile = button('',()=>onCard(card),cls);
+      tile.title = card.word;
+      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:''));
+      tile.append(el('span','name',card.word));
+      if (answer) tile.append(el('span','answer-chip',answer));
+      area.append(tile);
+      positions?.set(card.id,{tier,tile});
+    }
+    row.append(label,area);
+    return row;
+  }));
+}
+export function fit(root = $('board')) {
+  for (const area of root.querySelectorAll('.tier-content')) {
     const count = area.querySelectorAll('.tile').length;
     if (!count) continue;
     const w = area.clientWidth - 4, h = area.clientHeight - 4;
@@ -108,4 +119,27 @@ export function fit() {
     area.style.setProperty('--answer-size',Math.max(4,Math.min(16,(best.h-2)*.55,(best.w-2)*.48))+'px');
     area.style.setProperty('--tile-gap',gap+'px');
   }
+}
+
+export function progress(r) {
+  return r.mode === 1 ? r.fixed : r.mode === 2 && ['placement','attemptResult','result'].includes(r.phase)
+    ? r.cards.filter(c => c.placed).length : r.submitted;
+}
+export function showProgress(count,total,label,bar) {
+  label.textContent = `${count} / ${total} 枚`;
+  bar.style.width = (total ? count / total * 100 : 0)+'%';
+}
+export function showLife(r,label) {
+  label.hidden = r?.lives == null;
+  label.textContent = label.hidden ? '' : `🤍${r.lives}/${r.initialLives}`;
+  if (!label.hidden) label.setAttribute('aria-label',`残りライフ ${r.lives} / ${r.initialLives}`);
+}
+export function resultSummary(r) {
+  if (r.mode === 1) return `確定 ${r.fixed} / ${r.total} 枚 · ミス ${r.misses} 回`;
+  if (r.mode === 2) return `正解 ${r.correctCount} / ${r.total} 枚 · `+
+    (r.target == null ? `提出 ${r.attempts} 回` : `${(r.correctCount/r.total*100).toFixed(1)}%（目標 ${r.target}%）`);
+  return 'お題は「'+r.topic+'」';
+}
+export function cardDescription(c) {
+  return [c.owner,c.placed?'配置 '+c.placed:'',c.answer?'正解 '+c.answer:''].filter(Boolean).join(' ／ ');
 }

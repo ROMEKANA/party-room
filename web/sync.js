@@ -60,6 +60,15 @@ export function connect(onState,onError,onClose) {
       accept(data);
       timer = setTimeout(()=>poll(),450);
     },
+    async history(id) {
+      const g = generation;
+      try {
+        return await request(id ? 'history/'+encodeURIComponent(id) : 'history');
+      } catch (error) {
+        if (error.code === 'disconnected' && g === generation) stop(error.message);
+        throw error;
+      }
+    },
     async send(type,fields = {},base = state?.round) {
       if (!token || pending) return false;
       const g = generation;

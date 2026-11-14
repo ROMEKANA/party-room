@@ -1,5 +1,5 @@
 import {requireGame} from './room.js';
-import {finish, phase, writeCard} from './round.js';
+import {finish, phase, placeCard, writeCard} from './round.js';
 
 export function mode1(r, id, a, host) {
   const card = r.cards[r.turn];
@@ -60,13 +60,18 @@ function judge(r, card) {
     r.excluded.push(tier);
     (r.history ??= []).push({word:card.word,tier,answer:card.answer});
   }
+  if (correct && r.scores) {
+    const voters = Object.keys(r.votes).filter(id => r.votes[id] === 'good');
+    r.scores[card.owner] += voters.length;
+    for (const id of voters) r.scores[id]++;
+  }
   if (correct || r.settings.mode1Wrong === 'reveal') {
-    card.placed = tier;
+    placeCard(r,card,tier);
     card.fixed = true;
     r.feedback.answer = card.answer;
   }
   if (r.lives === 0) {
-    if (!card.placed) card.placed = tier;
+    if (!card.placed) placeCard(r,card,tier);
     finish(r, false);
   } else phase(r, 'turnResult');
 }

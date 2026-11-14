@@ -1,10 +1,10 @@
 import {COLORS,MODES} from './config.js';
-import {$,avatars,board,button,el,fit,short} from './board.js';
+import {$,avatars,board,button,el,fit,progress,resultSummary,short,showLife,showProgress} from './board.js';
 import {connect,storedName} from './sync.js';
 import {dialogs} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
-const panel = dialogs(()=>state,(...args)=>sync.send(...args));
+const panel = dialogs(()=>state,(...args)=>sync.send(...args),id=>sync.history(id));
 const sync = connect((next) => {
   state = next;
   notice('');
@@ -42,8 +42,8 @@ $('join').onsubmit = async event => {
     joining = false;
   }
 };
-for (const id of ['settings','rules','menu']) $(id).onclick = ()=>panel.open(id);
-new ResizeObserver(fit).observe($('board'));
+for (const id of ['settings','rules','menu','roundHistory']) $(id).onclick = ()=>panel.open(id);
+new ResizeObserver(()=>fit()).observe($('board'));
 function viewport() {
   const view = window.visualViewport;
   if (view) {
@@ -95,12 +95,12 @@ function render() {
     });
     $('board-title').textContent = r?.topic || (r?.mode===3 && r.phase!=='topic' ? 'お題は？' : MODES[s.settings.mode]);
     $('board-title').title = r?.topic ?? '';
-    const n = r?.mode===1 ? r.fixed : r?.mode===2 && ['placement','attemptResult','result'].includes(r.phase)
-      ? r.cards.filter(c=>c.placed).length : r?.submitted;
-    $('progress').textContent = r ? `${n} / ${r.total} 枚` : `${s.players.filter(p=>p.online).length} / 10 人`;
-    $('progress-bar').style.width = (r ? (n/r.total)*100 : 0)+'%';
-    $('life').hidden = r?.lives == null;
-    $('life').textContent = r?.lives == null ? '' : '♥ '+r.lives;
+    if (r) showProgress(progress(r),r.total,$('progress'),$('progress-bar'));
+    else {
+      $('progress').textContent = `${s.players.filter(p=>p.online).length} / 10 人`;
+      $('progress-bar').style.width = '0%';
+    }
+    showLife(r,$('life'));
     const watching = s.players.find(p=>p.id===s.me)?.spectator;
     $('phase-label').textContent = (watching?'観戦中 · ':'')+({
       topic:'お題決め',input:'カード入力',placement:'Tierを選択',vote:'投票中',
@@ -182,14 +182,9 @@ function deck(s) {
     if (r.canJudge) add('正誤を判定',()=>panel.open('judge'),'primary');
   } else if (r.phase==='result') {
     label(r.result.win?'クリア！':'ラウンド終了 · 失敗');
-    if (r.mode===1) line(`確定 ${r.fixed} / ${r.total} 枚 · ミス ${r.misses} 回 · 残りライフ ${r.lives}`);
+    line(resultSummary({...r,correctCount:r.feedback?.score,
+      target:s.settings.mode2Rule==='accuracy' ? s.settings.mode2Target : null}));
     if (r.mode===1 && r.history.length) add('誤答の詳細',()=>panel.open('history'));
-    if (r.mode===2) {
-      const score = r.feedback.score;
-      line(`正解 ${score} / ${r.total} 枚 · `+
-        (s.settings.mode2Rule==='accuracy'? `${(score/r.total*100).toFixed(1)}%（目標 ${s.settings.mode2Target}%）` : `提出 ${r.attempts} 回`));
-    }
-    if (r.mode===3) line('お題は「'+r.topic+'」');
     if (host && s.startProblem) line(s.startProblem);
     nextRound();
   }

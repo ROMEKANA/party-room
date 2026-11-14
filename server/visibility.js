@@ -1,5 +1,5 @@
 import {connected, isOnline} from './room.js';
-import {currentInput} from './round.js';
+import {currentInput, orderedCards} from './round.js';
 import {judgeId} from './mode23.js';
 import {DEFAULTS,TIERS,startProblem} from '../web/config.js';
 
@@ -8,7 +8,7 @@ export function visible(s, id, now) {
   const hideAuthors = r?.mode === 3 && id === r.parent && r.phase !== 'result';
   const {topicSource, ...settings} = {...DEFAULTS,...s.settings};
   const state = {
-    me:id, host:s.host, settings,
+    me:id, host:s.host, settings, historyVersion:s.historyVersion ?? null,
     tiers:TIERS[(r?.settings ?? s.settings).difficulty],
     startProblem:startProblem(s.settings,connected(s,now).length),
     players:s.players.filter(p => !p.left || r?.ids.includes(p.id)).map(p => {
@@ -39,9 +39,11 @@ export function visible(s, id, now) {
     ...(!hideAuthors ? {owner:c.owner} : {}),
     ...(result || (r.mode === 1 && c.fixed && c.placed !== c.answer) ? {answer:c.answer} : {}),
   });
-  const cards = showWords || peekMode2 ? r.cards.filter(c => c.word).map(cardView) : [];
-  // A parent's card order must not reflect the author's slot in the deal.
-  if (r.mode === 3 && id === r.parent) cards.sort((a,b) => a.id.localeCompare(b.id));
+  const cards = [];
+  if (showWords || peekMode2) {
+    cards.push(...orderedCards(r,peekMode2).map(cardView));
+    if (!peekMode2) cards.push(...r.cards.filter(c => c.word && !c.placed).map(cardView));
+  }
   if (r.mode === 1 && r.proposal) {
     const proposed = cards.find(c => c.id === current.id);
     proposed.placed = r.proposal.tier;
@@ -54,11 +56,12 @@ export function visible(s, id, now) {
     turn:r.mode === 1 ? current.owner : null,
     total:r.cards.length, submitted:r.cards.filter(c => c.word).length,
     fixed:r.cards.filter(c => c.fixed).length,
-    lives:r.lives, misses:r.misses, attempts:r.attempts,
+    lives:r.lives, initialLives:r.mode === 1 ? r.settings.mode1Lives : r.mode === 3 ? 1 : null,
+    misses:r.misses, attempts:r.attempts,
     input:input ? {id:input.id,tier:input.answer} : null,
     current:showWords && current?.word ? cardView(current) : null,
     cards, excluded:r.excluded, feedback:r.feedback, result:r.result,
-    ...(result && r.mode === 1 ? {history:r.history ?? []} : {}),
+    ...(result && r.mode === 1 ? {history:r.history ?? [], ...(r.scores ? {scores:r.scores} : {})} : {}),
     proposal:r.proposal, vote:participant && id !== current?.owner && r.phase === 'vote' &&
       !Object.hasOwn(r.votes,id), canPlace:participant && r.phase === 'placement' &&
       (r.mode === 1 ? id !== current.owner : id === r.parent),

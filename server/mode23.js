@@ -1,6 +1,6 @@
 import {shuffle} from './draw.js';
 import {isOnline, requireGame} from './room.js';
-import {finish, phase, writeCard} from './round.js';
+import {finish, phase, placeCard, writeCard} from './round.js';
 
 export function judgeId(s, r, now) {
   const online = id => isOnline(s.players.find(p => p.id === id),now);
@@ -11,7 +11,7 @@ export function mode23(s, r, id, a, host, now) {
   if (a.type === 'word') {
     const card = writeCard(r,id,a);
     if (r.mode === 3) {
-      card.placed = card.answer;
+      placeCard(r,card,card.answer);
       card.fixed = true;
     }
     if (r.cards.every(c => c.word)) {
@@ -37,7 +37,7 @@ export function mode23(s, r, id, a, host, now) {
   const card = r.cards.find(c => c.id === a.card);
   if (a.type === 'place') {
     requireGame(card && r.queue[0] === card.id && r.tiers.includes(a.tier), '操作対象のカードが変わりました。');
-    card.placed = a.tier;
+    placeCard(r,card,a.tier);
     r.queue.shift();
     r.version++;
   } else if (a.type === 'select') {

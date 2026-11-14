@@ -50,6 +50,7 @@ export function start(s, now) {
   s.round = {
     id:crypto.randomUUID(), phase:'topic', version:0, mode, ids, parent, setter, settings,
     tiers, cards, turn:0, topic:null, candidate:randomTopic(),
+    scores:mode === 1 && settings.mode1Scoring ? Object.fromEntries(ids.map(id => [id,0])) : null,
     lives:mode === 1 ? settings.mode1Lives : mode === 3 ? 1 : null,
     misses:0, history:[], excluded:[], proposal:null, votes:{}, feedback:null, result:null, attempts:0, queue:[],
   };
@@ -86,7 +87,23 @@ export function writeCard(r, id, action) {
   requireGame(word, '単語を1〜60文字で入力してください。', 400);
   requireGame(!r.cards.some(c => c.word === word), '同じ単語が提出済みです。', 400);
   card.word = word;
+  if (r.mode === 2) card.submissionOrder = r.cards.filter(c => c.word).length;
   return card;
+}
+export function placeCard(r, card, tier) {
+  r.placementSequence = (r.placementSequence ?? 0) + 1;
+  card.position = r.placementSequence;
+  card.placed = tier;
+}
+export function orderedCards(r, peek = false) {
+  const order = peek ? 'submissionOrder' : 'position';
+  const cards = r.cards.filter(c => c.word).sort((a,b) => {
+    const byPlacement = (a[order] ?? 0) - (b[order] ?? 0);
+    // For an in-progress round from an older release, keep the former concealed order.
+    if (r.mode === 3 && a[order] == null && b[order] == null) return a.id.localeCompare(b.id);
+    return byPlacement;
+  });
+  return r.tiers.flatMap(tier => cards.filter(c => (peek ? c.answer : c.placed) === tier));
 }
 export const finish = (r, win) => {
   r.result = {win};

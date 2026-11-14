@@ -1,10 +1,66 @@
 import {DEFAULTS,MODES} from './config.js';
-import {$,button,el,short} from './board.js';
+import {$,button,cardDescription,el,fit,short} from './board.js';
+import {historyDetail,historyList} from './history.js';
 
-export function dialogs(getState,send) {
+export function dialogs(getState,send,loadHistory) {
   const overlay = $('overlay'), dialog = $('dialog'), peekButton = $('peek-board');
   let panel = null, lastKey = '', problem = '', tab = 0;
   let heldPointer = null, heldKey = null;
+  let historyTimer;
+  const historyBoard = new ResizeObserver(entries=>entries.forEach(({target})=>fit(target)));
+  const stablePanels = ['settings','rules','menu','roundHistory','resetHistory'];
+  const refreshOnReturn = () => {
+    if (!document.hidden && panel?.kind === 'roundHistory') refreshHistory(panel);
+  };
+  document.addEventListener('visibilitychange',refreshOnReturn);
+
+  async function refreshHistory(view) {
+    const request = Symbol();
+    view.request = request;
+    const id = view.selected;
+    try {
+      const {at,record} = await loadHistory(id);
+      if (panel !== view || view.request !== request) return;
+      view.error = '';
+      if (id) view.record = record;
+      else {
+        view.scrollTop = dialog.querySelector('.history-list')?.scrollTop ?? view.scrollTop;
+        view.list = record;
+      }
+      const next = id ? record.expiresAt : Math.min(...record.map(item=>item.expiresAt));
+      clearTimeout(historyTimer);
+      if (Number.isFinite(next)) {
+        historyTimer = setTimeout(()=>{
+          if (panel !== view) return;
+          if (view.selected) {
+            backToHistory(view);
+            return;
+          }
+          const earliest = Math.min(...view.list.map(item=>item.expiresAt));
+          view.list = view.list.filter(item=>item.expiresAt > earliest);
+          render(true);
+          refreshHistory(view);
+        },Math.max(0,next-at));
+      }
+    } catch (error) {
+      if (panel !== view || view.request !== request) return;
+      if (error.code === 'historyExpired') {
+        backToHistory(view);
+        return;
+      }
+      view.error = '履歴を取得できませんでした。';
+    }
+    if (panel === view) render(true);
+  }
+  function backToHistory(view) {
+    clearTimeout(historyTimer);
+    view.selected = null;
+    view.record = view.card = null;
+    view.error = '';
+    view.list = null;
+    render(true);
+    refreshHistory(view);
+  }
 
   function stopPeeking() {
     const pointer = heldPointer;
@@ -49,13 +105,19 @@ export function dialogs(getState,send) {
     return null;
   }
   function open(kind, data = {}) {
-    const r = getState()?.round;
+    clearTimeout(historyTimer);
+    const s = getState(), r = s?.round;
     panel = {kind,data,round:r?.id,version:r?.version};
     tab = 0;
     problem = '';
+    if (kind === 'roundHistory') {
+      panel.historyVersion = s.historyVersion;
+      refreshHistory(panel);
+    }
     render(true);
   }
   function close() {
+    clearTimeout(historyTimer);
     panel = null;
     problem = '';
     render(true);
@@ -68,8 +130,12 @@ export function dialogs(getState,send) {
   }
   function render(force = false) {
     const s = getState(), r = s?.round;
-    if (!s || (panel && !['settings','rules','menu'].includes(panel.kind) &&
+    if (!s || (panel && !stablePanels.includes(panel.kind) &&
         (panel.round!==r?.id || panel.version!==r?.version))) panel = null;
+    if (panel?.kind === 'roundHistory' && panel.historyVersion !== s.historyVersion) {
+      panel.historyVersion = s.historyVersion;
+      refreshHistory(panel);
+    }
     const active = panel ?? automatic(s);
     const kind = active?.kind;
     const canPeek = kind==='input' && (s.settings.peekBoardWhileTyping ?? DEFAULTS.peekBoardWhileTyping);
@@ -77,8 +143,9 @@ export function dialogs(getState,send) {
     peekButton.dataset.card = canPeek ? r.input.id : '';
     peekButton.hidden = !canPeek;
     overlay.classList.toggle('has-peek',canPeek);
-    const key = JSON.stringify([kind,active?.data,r?.id,
-      ['settings','rules','menu'].includes(kind) ? null : r?.version,r?.input?.id,
+    const historyOpen = kind === 'roundHistory';
+    const key = JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
+      stablePanels.includes(kind) ? null : r?.version,historyOpen ? null : r?.input?.id,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.online]):null]:null,
       kind==='menu'?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null]);
     if (!force && key===lastKey) return;
@@ -89,17 +156,23 @@ export function dialogs(getState,send) {
     if (preserve) drafts.set(oldInput.dataset.key,draft);
     lastKey = key;
     overlay.hidden = !active;
+    historyBoard.disconnect();
+    dialog.classList.toggle('history-dialog',historyOpen);
+    dialog.classList.toggle('history-detail',historyOpen && Boolean(active.selected));
     dialog.replaceChildren();
     if (!active) return;
     problem = '';
     const titles = {settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
       input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirm:'配置を確認',
-      preview:'カード詳細',history:'誤答の詳細',end:'ゲームを途中終了',leave:'ルームから退出',
+      preview:'カード詳細',history:'誤答の詳細',roundHistory:active.record?'履歴の結果':'履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
       submit:'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作'};
     const head = el('div','modal-head');
     const title = el('h2','',titles[kind]);
     title.id = 'dialog-title';
     head.append(title);
+    if (historyOpen && active.selected) {
+      head.append(button('一覧に戻る',()=>backToHistory(active)));
+    }
     if (panel) {
       const x = button('×',close,'icon-button');
       x.setAttribute('aria-label','閉じる');
@@ -170,8 +243,38 @@ export function dialogs(getState,send) {
     } else if (kind==='preview') {
       const c = active.data.card;
       text(c.word,'dialog-word');
-      text([c.owner,c.placed?'配置 '+c.placed:'',c.answer?'正解 '+c.answer:''].filter(Boolean).join(' ／ '));
+      text(cardDescription(c));
       actions(button('閉じる',close,'primary'));
+    } else if (kind==='roundHistory') {
+      if (active.error) {
+        text(active.error,'error');
+        actions(button('再読み込み',()=>refreshHistory(active)));
+      } else if (active.selected && active.record) {
+        historyDetail(body,active.record,s.me,active.card,card=>{
+          active.card = active.card?.id === card.id ? null : card;
+          render(true);
+          dialog.querySelector('.history-card')?.scrollIntoView({block:'nearest'});
+          dialog.querySelector('.tile[aria-pressed=true]')?.focus({preventScroll:true});
+        });
+        historyBoard.observe(body.querySelector('.history-board'));
+      } else if (!active.selected && active.list?.length) {
+        historyList(body,active.list,(id,scrollTop)=>{
+          active.scrollTop = scrollTop;
+          active.selected = id;
+          active.error = '';
+          clearTimeout(historyTimer);
+          render(true);
+          refreshHistory(active);
+        },active.scrollTop ?? 0);
+      } else {
+        text(!active.selected && active.list ? '直近30分の履歴はありません。' : '履歴を読み込み中…');
+      }
+    } else if (kind==='resetHistory') {
+      text('このルームの履歴をすべて削除しますか？');
+      actions(button('キャンセル',()=>{open('settings');tab=2;render(true);}),
+        button('すべて削除',async()=>{
+          if (await act('resetHistory')) {open('settings');tab=2;render(true);}
+        },'control danger'));
     } else if (kind==='history') {
       const miss = r.history[tab];
       text(miss.word,'dialog-word');
@@ -191,12 +294,12 @@ export function dialogs(getState,send) {
       text('親の口頭回答を聞いてから判定してください。');
       actions(button('不正解',()=>done('judge',{win:false})),button('正解',()=>done('judge',{win:true}),'primary'));
     } else if (kind==='settings') {
-      settings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}));
+      settings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}),()=>open('resetHistory'));
       if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
     } else if (kind==='rules') {
       const pages = [
         ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。'],
-        [MODES[1],'手番の人が秘密Tierに沿って単語を出し、他の人が配置を提案します。Goodが過半数で可決され、配置が合っているか判定します。間違えるとライフが減ります。'],
+        [MODES[1],'手番の人が秘密Tierに沿って単語を出し、他の人が配置を提案します。Goodが過半数で可決され、配置が合っているか判定します。間違えるとライフが減ります。得点ONの場合、可決されて正解すると、記入者にGoodの数だけ、Goodを押した人にそれぞれ1点が入ります。否決・不正解で点は変わりません。得点はラウンド終了時に表示されます。'],
         [MODES[2],'子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。完璧モードは全問正解、正答率モードは設定した割合を目指します。'],
         [MODES[3],'子が提出するたびに正解Tierへカードが加わります。親は完成した表を見て口頭で回答し、お題の担当者が判定します。'],
       ];
@@ -239,7 +342,7 @@ export function dialogs(getState,send) {
   });
   return {open,render,error,close};
 }
-function settings(body,s,tab,onTab,change) {
+function settings(body,s,tab,onTab,change,resetHistory) {
   const editable = s.host===s.me && !s.round;
   const st = s.settings;
   const tabs = el('div','action-row');
@@ -279,6 +382,7 @@ function settings(body,s,tab,onTab,change) {
       .map(p=>[p.id,p.id]);
     if (st.mode===1) {
       select('ライフ','mode1Lives',range(30));
+      select('得点','mode1Scoring',[[false,'OFF'],[true,'ON']]);
       select('不正解時','mode1Wrong',[['reveal','正解を公開'],['retry','同じカードで再挑戦']]);
       select('次のお題担当','nominatedMode1Setter',[[null,'ランダム一巡'],...playerOptions('nominatedMode1Setter')]);
     } else {
@@ -308,5 +412,6 @@ function settings(body,s,tab,onTab,change) {
       select('端Tierの出現順を制限','edgePrerequisites',[[true,'ON'],[false,'OFF']]);
       body.append(el('p','dialog-copy','ONの場合、SSはSが、EはDが一度出てから登場します。配布枚数は変わりません。'));
     }
+    if (s.host === s.me) body.append(button('履歴をリセット',resetHistory,'control danger'));
   }
 }

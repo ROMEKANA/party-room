@@ -91,3 +91,27 @@ nav button{padding-inline:6px}
 .draw-help{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 8px;font-size:12px;line-height:1.3;color:#4f6355}
 .draw-help dt{font-weight:700}
 .draw-help dd{margin:0}
+
+.tier-content{justify-content:flex-start;align-content:center}
+.player-score,.pill,.history-time,.history-progress{font-variant-numeric:tabular-nums}
+.player-score{font-weight:750;font-size:12px;margin-top:3px}
+.player-score+.player-name{margin-top:1px}
+.danger,.control.danger{background:#f8dfda;border-color:#dcaaa0;color:#8e312a}
+.history-dialog{max-height:100%;display:flex;flex-direction:column;min-height:0}
+.history-dialog .dialog-body{min-height:0}
+.history-dialog .modal-head{flex-shrink:0;justify-content:flex-start;gap:6px}
+.history-dialog .modal-head h2{margin-right:auto}
+.history-list{display:grid;align-content:start;gap:7px;overflow:auto;overscroll-behavior:contain;padding:3px}
+.history-item{display:grid;gap:3px;text-align:left;padding:8px 10px}
+.history-time,.history-meta{font-size:11px;color:#4f6355}
+.history-topic{overflow-wrap:anywhere}
+.history-detail{width:min(100%,720px);height:100%}
+.history-detail .dialog-body{flex:1;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain;padding:3px}
+.history-detail .dialog-body>:not(.board){flex:none}
+.history-board{min-height:140px}
+.history-progress{white-space:nowrap}
+.history-bar{height:100%;background:#5c795b}
+.history-card{border:1px solid #d9dfd0;border-radius:9px;padding:6px 8px}
+.history-card .dialog-word{font-size:16px}
+.history-board .tile[aria-pressed=true]{outline:2px solid #41644e;outline-offset:-2px}
+@media(max-width:340px){header .brand{font-size:14px;gap:3px}nav{gap:2px}}
