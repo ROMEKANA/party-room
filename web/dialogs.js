@@ -1,6 +1,7 @@
 import {DEFAULTS,MODES} from './config.js';
 import {$,button,cardDescription,el,fit,short} from './board.js';
 import {historyDetail,historyList} from './history.js';
+import {releaseHistory} from './releases.js';
 
 export function dialogs(getState,send,loadHistory) {
   const overlay = $('overlay'), dialog = $('dialog'), peekButton = $('peek-board');
@@ -118,9 +119,11 @@ export function dialogs(getState,send,loadHistory) {
   }
   function close() {
     clearTimeout(historyTimer);
+    const trigger = panel?.kind === 'releaseHistory' ? $(panel.data.trigger) : null;
     panel = null;
     problem = '';
     render(true);
+    if (trigger) (trigger.hidden ? $('brand-version') : trigger).focus({preventScroll:true});
   }
   function error(message) {
     problem = message;
@@ -130,8 +133,9 @@ export function dialogs(getState,send,loadHistory) {
   }
   function render(force = false) {
     const s = getState(), r = s?.round;
-    if (!s || (panel && !stablePanels.includes(panel.kind) &&
-        (panel.round!==r?.id || panel.version!==r?.version))) panel = null;
+    const releasesOpen = panel?.kind === 'releaseHistory';
+    if (!releasesOpen && (!s || (panel && !stablePanels.includes(panel.kind) &&
+        (panel.round!==r?.id || panel.version!==r?.version)))) panel = null;
     if (panel?.kind === 'roundHistory' && panel.historyVersion !== s.historyVersion) {
       panel.historyVersion = s.historyVersion;
       refreshHistory(panel);
@@ -144,7 +148,7 @@ export function dialogs(getState,send,loadHistory) {
     peekButton.hidden = !canPeek;
     overlay.classList.toggle('has-peek',canPeek);
     const historyOpen = kind === 'roundHistory';
-    const key = JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
+    const key = releasesOpen ? kind : JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
       stablePanels.includes(kind) ? null : r?.version,historyOpen ? null : r?.input?.id,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.online]):null]:null,
       kind==='menu'?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null]);
@@ -159,10 +163,11 @@ export function dialogs(getState,send,loadHistory) {
     historyBoard.disconnect();
     dialog.classList.toggle('history-dialog',historyOpen);
     dialog.classList.toggle('history-detail',historyOpen && Boolean(active.selected));
+    dialog.classList.toggle('release-dialog',releasesOpen);
     dialog.replaceChildren();
     if (!active) return;
     problem = '';
-    const titles = {settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
+    const titles = {releaseHistory:'アップデート履歴',settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
       input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirm:'配置を確認',
       preview:'カード詳細',history:'誤答の詳細',roundHistory:active.record?'履歴の結果':'履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
       submit:'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作'};
@@ -193,7 +198,10 @@ export function dialogs(getState,send,loadHistory) {
     };
     const actions = (...buttons) => body.append(actionRow(...buttons));
     const text = (value,cls = 'dialog-copy') => body.append(el('p',cls,value));
-    if (kind==='input' || kind==='topic') {
+    if (releasesOpen) {
+      releaseHistory(body);
+      head.querySelector('button').focus({preventScroll:true});
+    } else if (kind==='input' || kind==='topic') {
       const isTopic = kind==='topic';
       const input = el('input');
       input.type = 'text';
@@ -331,8 +339,11 @@ export function dialogs(getState,send,loadHistory) {
   document.addEventListener('keydown',e=>{
     if (e.key==='Escape' && panel) close();
     if (e.key==='Tab' && !overlay.hidden) {
-      const focusable = [...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled)'),
-        ...(!peekButton.hidden?[peekButton]:[]), ...document.querySelectorAll('#nav button')];
+      const focusable = [...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')];
+      if (panel?.kind !== 'releaseHistory') {
+        if (!peekButton.hidden) focusable.push(peekButton);
+        if (!$('nav').hidden) focusable.push(...$('nav').querySelectorAll('button'));
+      }
       const index = focusable.indexOf(document.activeElement);
       if (index===-1 || (e.shiftKey ? index===0 : index===focusable.length-1)) {
         e.preventDefault();

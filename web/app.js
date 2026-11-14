@@ -43,6 +43,9 @@ $('join').onsubmit = async event => {
   }
 };
 for (const id of ['settings','rules','menu','roundHistory']) $(id).onclick = ()=>panel.open(id);
+for (const id of ['brand-version','release-history']) {
+  $(id).onclick = event=>panel.open('releaseHistory',{trigger:event.currentTarget.id});
+}
 new ResizeObserver(()=>fit()).observe($('board'));
 function viewport() {
   const view = window.visualViewport;
@@ -75,6 +78,7 @@ keepScreenAwake();
 
 function render() {
   $('entrance').hidden = Boolean(state);
+  $('release-history').hidden = Boolean(state);
   for (const id of ['nav','players','intro','board','deck']) $(id).hidden = !state;
   if (!state) {
     lastScreen = '';
