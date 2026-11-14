@@ -55,6 +55,24 @@ window.visualViewport?.addEventListener('resize',viewport);
 window.visualViewport?.addEventListener('scroll',viewport);
 viewport();
 
+let wakeLock = null, wakeLockPending = false;
+async function keepScreenAwake() {
+  if (!navigator.wakeLock || document.visibilityState !== 'visible' ||
+      wakeLockPending || (wakeLock && !wakeLock.released)) return;
+  wakeLockPending = true;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch {
+    // The browser or OS can deny the request, for example in low power mode.
+  } finally {
+    wakeLockPending = false;
+  }
+}
+document.addEventListener('visibilitychange',keepScreenAwake);
+document.addEventListener('pointerdown',keepScreenAwake,{passive:true});
+window.addEventListener('pageshow',keepScreenAwake);
+keepScreenAwake();
+
 function render() {
   $('entrance').hidden = Boolean(state);
   for (const id of ['nav','players','intro','board','deck']) $(id).hidden = !state;

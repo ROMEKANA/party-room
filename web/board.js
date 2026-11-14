@@ -57,11 +57,9 @@ export function board(state,onCard) {
     for (const card of inside) {
       const answer = card.answer && card.answer!==tier ? card.answer : null;
       const cls = 'tile'+(card.provisional?' provisional':'')+(answer?' wrong':'');
-      const tile = card.owner == null ? el('div',cls) : button('',()=>onCard(card),cls);
-      if (tile instanceof HTMLButtonElement) {
-        tile.title = card.word;
-        tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:''));
-      }
+      const tile = button('',()=>onCard(card),cls);
+      tile.title = card.word;
+      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:''));
       tile.append(el('span','name',card.word));
       if (answer) tile.append(el('span','answer-chip',answer));
       area.append(tile);

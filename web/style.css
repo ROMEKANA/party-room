@@ -81,3 +81,8 @@ nav button{padding-inline:6px}
 .setting-row.unavailable{opacity:.55}
 .setting-row.unavailable select{background:#dce1d8;opacity:1}
 @media(max-height:420px){.topic-random,.topic-custom{gap:3px}.topic-custom{padding-top:4px}}
+.overlay.has-peek{padding-bottom:calc(55px + env(safe-area-inset-bottom))}
+.overlay.peeking{background:transparent;backdrop-filter:none}
+.overlay.peeking .dialog{opacity:0;pointer-events:none}
+.peek-board{position:absolute;bottom:max(9px,env(safe-area-inset-bottom));right:max(10px,env(safe-area-inset-right));min-height:42px;background:#f4f8f0;touch-action:none;user-select:none;-webkit-touch-callout:none}
+.settings-done{background:#bbdcea;color:#223d49;width:100%}

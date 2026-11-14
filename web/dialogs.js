@@ -1,9 +1,45 @@
-import {MODES} from './config.js';
+import {DEFAULTS,MODES} from './config.js';
 import {$,button,el,short} from './board.js';
 
 export function dialogs(getState,send) {
-  const overlay = $('overlay'), dialog = $('dialog');
+  const overlay = $('overlay'), dialog = $('dialog'), peekButton = $('peek-board');
   let panel = null, lastKey = '', problem = '', tab = 0;
+  let heldPointer = null, heldKey = null;
+
+  function stopPeeking() {
+    const pointer = heldPointer;
+    heldPointer = heldKey = null;
+    overlay.classList.remove('peeking');
+    if (pointer !== null && peekButton.hasPointerCapture(pointer)) peekButton.releasePointerCapture(pointer);
+  }
+  peekButton.addEventListener('pointerdown',event=>{
+    if (event.button !== 0 || heldPointer !== null) return;
+    event.preventDefault();
+    heldPointer = event.pointerId;
+    peekButton.setPointerCapture(heldPointer);
+    overlay.classList.add('peeking');
+  });
+  for (const type of ['pointerup','pointercancel','lostpointercapture']) {
+    peekButton.addEventListener(type,event=>{
+      if (event.pointerId === heldPointer) stopPeeking();
+    });
+  }
+  peekButton.addEventListener('contextmenu',event=>event.preventDefault());
+  peekButton.addEventListener('keydown',event=>{
+    if (event.key !== ' ' && event.key !== 'Enter') return;
+    event.preventDefault();
+    if (event.repeat) return;
+    heldKey = event.key;
+    overlay.classList.add('peeking');
+  });
+  peekButton.addEventListener('keyup',event=>{
+    if (event.key !== heldKey) return;
+    event.preventDefault();
+    stopPeeking();
+  });
+  peekButton.addEventListener('blur',()=>{if (heldKey !== null) stopPeeking();});
+  window.addEventListener('blur',stopPeeking);
+  document.addEventListener('visibilitychange',()=>{if (document.hidden) stopPeeking();});
   function automatic(s) {
     const r = s?.round;
     if (!r) return null;
@@ -36,6 +72,11 @@ export function dialogs(getState,send) {
         (panel.round!==r?.id || panel.version!==r?.version))) panel = null;
     const active = panel ?? automatic(s);
     const kind = active?.kind;
+    const canPeek = kind==='input' && (s.settings.peekBoardWhileTyping ?? DEFAULTS.peekBoardWhileTyping);
+    if (!canPeek || peekButton.dataset.card !== r?.input?.id) stopPeeking();
+    peekButton.dataset.card = canPeek ? r.input.id : '';
+    peekButton.hidden = !canPeek;
+    overlay.classList.toggle('has-peek',canPeek);
     const key = JSON.stringify([kind,active?.data,r?.id,
       ['settings','rules','menu'].includes(kind) ? null : r?.version,r?.input?.id,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.online]):null]:null,
@@ -109,7 +150,7 @@ export function dialogs(getState,send) {
       };
       form.onsubmit = async event => {
         event.preventDefault();
-        if (submit.disabled) return;
+        if (submit.disabled || overlay.classList.contains('peeking')) return;
         const word = input.value;
         const ok = await (isTopic ? act('topic',{source:'custom',word}) : act('word',{card:r.input.id,word}));
         if (ok) drafts.delete(input.dataset.key);
@@ -151,6 +192,7 @@ export function dialogs(getState,send) {
       actions(button('不正解',()=>done('judge',{win:false})),button('正解',()=>done('judge',{win:true}),'primary'));
     } else if (kind==='settings') {
       settings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}));
+      if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
     } else if (kind==='rules') {
       const pages = [
         ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。ゲームに制限時間はありません。'],
@@ -186,7 +228,7 @@ export function dialogs(getState,send) {
     if (e.key==='Escape' && panel) close();
     if (e.key==='Tab' && !overlay.hidden) {
       const focusable = [...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled)'),
-        ...document.querySelectorAll('#nav button')];
+        ...(!peekButton.hidden?[peekButton]:[]), ...document.querySelectorAll('#nav button')];
       const index = focusable.indexOf(document.activeElement);
       if (index===-1 || (e.shiftKey ? index===0 : index===focusable.length-1)) {
         e.preventDefault();
@@ -250,6 +292,7 @@ function settings(body,s,tab,onTab,change) {
         [[null,nominated?'自動で決める':'親を指名すると選べます'],...playerOptions('nominatedSetter',st.nominatedParent)],
         nominated);
     }
+    select('入力中にTier表を確認','peekBoardWhileTyping',[[true,'ON'],[false,'OFF']]);
   } else {
     select('Tier抽選','randomMode',[['random','完全ランダム'],['balanced','できるだけ均等'],['centerWeighted','真ん中多め']]);
     if (st.mode===1 && st.difficulty==='hard') {

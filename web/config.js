@@ -11,6 +11,7 @@ export const DEFAULTS = {
   mode:1, difficulty:'normal', cardsPerPlayer:3, randomMode:'balanced',
   edgePrerequisites:true, mode1Lives:3, mode1Wrong:'reveal',
   mode2Rule:'perfect', mode2Attempts:3, mode2Target:70,
+  peekBoardWhileTyping:true,
   nominatedParent:null, nominatedMode1Setter:null, nominatedSetter:null,
 };
 export const totalCards = (settings, count) =>

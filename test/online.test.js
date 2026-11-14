@@ -272,3 +272,23 @@ test('mode 1 nomination is one-time and skips no one in random rotation; mode 2 
   assert.equal((await owner.send('settings',{settings:{mode:2,nominatedParent:player.name,nominatedSetter:owner.name}})).status,200);
   assert.equal((await owner.send('settings',{settings:{nominatedParent:null}})).state.settings.nominatedSetter,null);
 });
+
+test('mode 2 input preview shows guesses at assigned tiers only to children when enabled',async()=>{
+  for (const enabled of [true,false]) {
+    const {h,players,parent,setter,topic}=await round(2,enabled?{}:{peekBoardWhileTyping:false});
+    const children=Object.values(players).filter(p=>p!==parent);
+    const watcher=await h.join('spectator');
+    await setter.send('topic',{word:topic});
+    const submitted=(await children[0].state()).round.input;
+    const waiting=(await children[1].state()).round.input;
+    assert.equal((await children[0].send('word',{card:submitted.id,word:'入力済みのカード'})).status,200);
+    const view=await children[1].state();
+    assert.equal(view.settings.peekBoardWhileTyping,enabled);
+    assert.equal(view.round.input.id,waiting.id);
+    assert.deepEqual(view.round.cards,enabled?[{
+      id:submitted.id,word:'入力済みのカード',placed:submitted.tier,fixed:false,owner:children[0].name,
+    }]:[]);
+    for (const player of [parent,watcher]) assert.deepEqual((await player.state()).round.cards,[]);
+    assert.equal(h.raw().round.cards.find(c=>c.id===submitted.id).placed,null);
+  }
+});

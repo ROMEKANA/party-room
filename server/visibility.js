@@ -1,12 +1,12 @@
 import {connected, isOnline} from './room.js';
 import {currentInput} from './round.js';
 import {judgeId} from './mode23.js';
-import {TIERS,startProblem} from '../web/config.js';
+import {DEFAULTS,TIERS,startProblem} from '../web/config.js';
 
 export function visible(s, id, now) {
   const r = s.round;
   const hideAuthors = r?.mode === 3 && id === r.parent && r.phase !== 'result';
-  const {topicSource, ...settings} = s.settings;
+  const {topicSource, ...settings} = {...DEFAULTS,...s.settings};
   const state = {
     me:id, host:s.host, settings,
     tiers:TIERS[(r?.settings ?? s.settings).difficulty],
@@ -32,12 +32,14 @@ export function visible(s, id, now) {
   const input = participant ? currentInput(r,id) : null;
   const showTopic = r.mode !== 3 || result || (participant && id !== r.parent);
   const showWords = r.mode !== 2 || !['topic','input'].includes(r.phase);
+  const peekMode2 = r.mode === 2 && r.phase === 'input' && participant && id !== r.parent &&
+    (r.settings.peekBoardWhileTyping ?? DEFAULTS.peekBoardWhileTyping);
   const cardView = c => ({
-    id:c.id, word:c.word, placed:c.placed, fixed:c.fixed,
+    id:c.id, word:c.word, placed:peekMode2 ? c.answer : c.placed, fixed:c.fixed,
     ...(!hideAuthors ? {owner:c.owner} : {}),
     ...(result || (r.mode === 1 && c.fixed && c.placed !== c.answer) ? {answer:c.answer} : {}),
   });
-  const cards = showWords ? r.cards.filter(c => c.word).map(cardView) : [];
+  const cards = showWords || peekMode2 ? r.cards.filter(c => c.word).map(cardView) : [];
   // A parent's card order must not reflect the author's slot in the deal.
   if (r.mode === 3 && id === r.parent) cards.sort((a,b) => a.id.localeCompare(b.id));
   if (r.mode === 1 && r.proposal) {
