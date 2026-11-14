@@ -143,7 +143,7 @@ test('mode 2 perfect and accuracy through independent HTTP sessions',async()=>{
     assert.equal((await activeHost.send('lobby')).status,200);
   }
 });
-test('mode 3 secrets, spectators, incremental placement, fallback judge, and reveal',async()=>{
+test('mode 3 hides topics and authors until results, with incremental placement and fallback judge',async()=>{
   const {h,host,players,parent,setter,topic}=await round(3);
   const watcher=await h.join('spectator');
   assert.equal((await watcher.state()).players.find(p=>p.id===watcher.name).spectator,true);
@@ -160,6 +160,12 @@ test('mode 3 secrets, spectators, incremental placement, fallback judge, and rev
       const r=(await parent.state()).round;
       assert.equal(r.cards.length,count);
       assert.equal(r.cards.find(c=>c.id===input.id).placed,input.tier);
+      assert.ok(r.cards.every(c=>!Object.hasOwn(c,'owner')));
+      const parentState=await parent.state();
+      assert.ok(parentState.players.every(p=>p.mark===null));
+      assert.deepEqual(r.cards.map(c=>c.id),r.cards.map(c=>c.id).sort());
+      const authored=(await child.state()).round.cards.find(c=>c.id===input.id);
+      assert.equal(authored.owner,child.name);
       assert.equal(r.topic,null);
     }
   }
@@ -170,6 +176,10 @@ test('mode 3 secrets, spectators, incremental placement, fallback judge, and rev
   await fallback.send('judge',{win:true});
   assert.equal((await parent.state()).round.topic,topic);
   const final=await parent.state();
+  assert.deepEqual(
+    final.round.cards.map(c=>c.owner).sort(),
+    h.raw().round.cards.map(c=>c.owner).sort(),
+  );
   const nonHost=final.host===parent.name?fallback:parent;
   assert.equal((await nonHost.send('lobby')).status,409);
   assert.equal((await players[final.host].send('lobby')).status,200);
