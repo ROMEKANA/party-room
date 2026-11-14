@@ -1,0 +1,7 @@
+export const TIERS = [ {id:'S',color:'#f1a7a2',name:'最高！'}, {id:'A',color:'#efc094',name:'かなり好き'}, {id:'B',color:'#e9d78f',name:'好き'}, {id:'C',color:'#b9d3b2',name:'ふつう'}, {id:'D',color:'#b7cbdc',name:'好みじゃない'} ];
+export const SAMPLES = [['🍣','お寿司'],['🍜','ラーメン'],['🍕','ピザ'],['🍛','カレー'],['🍔','ハンバーガー'],['🍮','プリン'],['🥟','餃子'],['🍝','パスタ'],['🍦','アイス'],['🥐','クロワッサン'],['🍤','天ぷら'],['🍰','ケーキ']];
+export function createState(title='好きな食べもの', items=SAMPLES) {return {version:1,title,cards:items.map(([emoji,name],i)=>({id:String(i),emoji,name,tier:null})),history:[]};}
+export function place(state,id,tier) {if(!TIERS.some(t=>t.id===tier))return false; const c=state.cards.find(c=>c.id===id);if(!c||c.tier===tier)return false;state.history.push({id,from:c.tier});c.tier=tier;return true;}
+export function undo(state){const last=state.history.pop();if(last)state.cards.find(c=>c.id===last.id).tier=last.from;}
+export function load(){try{const s=JSON.parse(localStorage.getItem('tier-studio-v1'));if(s?.version===1 && typeof s.title==='string' && Array.isArray(s.history) && Array.isArray(s.cards) && s.cards.length>0 && s.cards.length<=30 && s.cards.every(c=>typeof c.id==='string'&&typeof c.name==='string'&&typeof c.emoji==='string'&&(c.tier===null||TIERS.some(t=>t.id===c.tier))))return s;}catch{}return createState();}
+export function save(s){try{localStorage.setItem('tier-studio-v1',JSON.stringify(s));return true;}catch{return false;}}
