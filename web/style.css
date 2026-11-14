@@ -31,7 +31,8 @@ nav button{padding-inline:6px}
 .tile{flex:0 0 var(--card-w,35px);gap:0;padding:0 1px;min-width:0;min-height:0;font-weight:650;border-radius:5px}
 .tile.provisional{border:1px dashed #526b50;background:#f4f0d7}
 .tile.wrong{border-color:#bf827b}
-.answer-chip{font-size:clamp(5px,1.9vw,10px);line-height:1;color:#934d45}
+.tile.wrong .name{font-size:calc(var(--name-size, 8px) * .78);line-height:1}
+.answer-chip{font-size:var(--answer-size,14px);font-weight:800;line-height:1;color:#9b3f36}
 .deck{padding:7px 10px;display:grid;gap:4px}
 .deck-top{min-height:15px;justify-content:center;text-align:center;line-height:1.18}
 .current{height:auto;min-height:0;display:flex;flex-direction:column;gap:3px}
@@ -73,3 +74,10 @@ nav button{padding-inline:6px}
 @media(max-width:340px){.brand-icon{width:23px;height:23px;margin-right:4px;font-size:17px}.brand{font-size:18px}nav button{font-size:11px;padding-inline:4px}}
 .card-flight{position:fixed;z-index:1;pointer-events:none;display:grid;place-items:center;border:1px solid #e2e4db;border-radius:9px;background:#fffdf7;color:#293f38;font-size:12px;font-weight:700;overflow:hidden;transform-origin:top left}
 @media(max-height:390px){.overlay{padding-top:32px}.dialog{padding:6px 8px}.dialog-body{gap:3px}.setting-row select{min-height:26px}.modal-head h2{font-size:14px}.action-row button{min-height:27px}}
+
+.topic-random,.topic-custom{display:grid;gap:6px}
+.topic-custom{padding-top:8px;border-top:1px solid #d9dfd0}
+.topic-label{margin:0;color:#4f6355;font-size:12px;font-weight:700}
+.setting-row.unavailable{opacity:.55}
+.setting-row.unavailable select{background:#dce1d8;opacity:1}
+@media(max-height:420px){.topic-random,.topic-custom{gap:3px}.topic-custom{padding-top:4px}}

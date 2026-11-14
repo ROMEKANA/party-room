@@ -1,4 +1,5 @@
 import {DEFAULTS} from '../web/config.js';
+import {randomTopic} from './topics.js';
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
 export const HEARTBEAT_MS = 6_000;
@@ -19,6 +20,7 @@ export function requireGame(ok, message, status, code) {
 export const isOnline = (p, now) => Boolean(p && !p.left && p.seen + ONLINE_MS > now);
 export const connected = (s, now) => s.players.filter(p => isOnline(p, now));
 export function reconcile(s, now) {
+  if (s.round?.phase === 'topic' && !s.round.candidate) s.round.candidate = randomTopic();
   if (!s.round) s.players = s.players.filter(p => !p.left && p.seen + ONLINE_MS + HOST_GRACE_MS > now);
   const host = s.players.find(p => p.id === s.host && !p.left);
   if (!host || host.seen + ONLINE_MS + HOST_GRACE_MS <= now) {
@@ -47,18 +49,26 @@ export function leave(s, p, now) {
   p.left = true;
   p.token = null;
   if (s.host === p.id) s.host = connected(s, now)[0]?.id ?? null;
-  if (s.settings.nominatedParent === p.id) s.settings.nominatedParent = null;
+  if (s.settings.nominatedParent === p.id) {
+    s.settings.nominatedParent = null;
+    s.settings.nominatedSetter = null;
+  }
+  for (const key of ['nominatedMode1Setter','nominatedSetter']) {
+    if (s.settings[key] === p.id) s.settings[key] = null;
+  }
   if (!s.round?.ids.includes(p.id)) s.players = s.players.filter(person => person !== p);
   if (s.players.every(person => person.left)) Object.assign(s, initialRoom());
 }
 export function settingsFor(s, patch, now) {
   requireGame(patch && typeof patch === 'object' && !Array.isArray(patch), '設定が無効です。', 400);
-  const next = {...s.settings};
+  const next = {...DEFAULTS,...s.settings};
+  delete next.topicSource;
+  const nominees = [null,...connected(s,now).map(p => p.id)];
   const choices = {
     mode:[1,2,3], difficulty:['easy','normal','hard'], randomMode:['random','balanced','centerWeighted'],
     edgePrerequisites:[true,false], mode1Wrong:['reveal','retry'], mode2Rule:['perfect','accuracy'],
-    topicSource:['random','custom'], mode2Target:Array.from({length:10}, (_,i) => (i+1)*10),
-    nominatedParent:[null,...connected(s,now).map(p => p.id)],
+    mode2Target:Array.from({length:10}, (_,i) => (i+1)*10),
+    nominatedParent:nominees, nominatedMode1Setter:nominees, nominatedSetter:nominees,
   };
   const max = {cardsPerPlayer:10,mode1Lives:30,mode2Attempts:10};
   for (const [key, value] of Object.entries(patch)) {
@@ -66,6 +76,13 @@ export function settingsFor(s, patch, now) {
       Object.hasOwn(max,key) && Number.isInteger(value) && value >= 1 && value <= max[key];
     requireGame(ok, '設定値が範囲外です。', 400);
     next[key] = value;
+  }
+  if (!next.nominatedParent ||
+      (Object.hasOwn(patch,'nominatedParent') && next.nominatedParent === next.nominatedSetter &&
+        !Object.hasOwn(patch,'nominatedSetter'))) next.nominatedSetter = null;
+  if (patch.nominatedSetter != null) {
+    requireGame(next.mode !== 1 && next.nominatedParent && next.nominatedParent !== patch.nominatedSetter,
+      '親を指名してから、親以外の人をお題担当に選んでください。');
   }
   return next;
 }

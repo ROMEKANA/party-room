@@ -1,7 +1,7 @@
 import {TIERS, startProblem, totalCards} from '../web/config.js';
 import {draw, shuffle} from './draw.js';
 import {connected, requireGame} from './room.js';
-import {TOPICS} from './topics.js';
+import {randomTopic} from './topics.js';
 
 function rotate(s, key, ids) {
   const cycle = s.rotation[key] ?? {used:[], queue:[]};
@@ -26,14 +26,22 @@ export function start(s, now) {
   const ids = connected(s, now).map(p => p.id);
   const issue = startProblem(settings, ids.length);
   requireGame(!issue, issue);
-  const {mode, cardsPerPlayer} = settings;
-  const parent = mode === 1 ? null : ids.includes(settings.nominatedParent)
-    ? settings.nominatedParent : rotate(s,'parent',ids);
-  if (mode !== 1) s.settings.nominatedParent = null;
+  const {mode} = settings;
+  const pickedParent = mode !== 1 && ids.includes(settings.nominatedParent) ? settings.nominatedParent : null;
+  const parent = mode === 1 ? null : pickedParent ?? rotate(s,'parent',ids);
   const children = ids.filter(id => id !== parent);
-  const setter = mode === 1 ? rotate(s,'setter',ids) : children.includes(s.previousParent)
-    ? s.previousParent : shuffle(children)[0];
-  if (parent) s.previousParent = parent;
+  let setter;
+  if (mode === 1) {
+    setter = ids.includes(settings.nominatedMode1Setter) ? settings.nominatedMode1Setter : rotate(s,'setter',ids);
+    s.settings.nominatedMode1Setter = null;
+  } else {
+    if (pickedParent && children.includes(settings.nominatedSetter)) setter = settings.nominatedSetter;
+    else setter = children.includes(s.previousParent) ? s.previousParent : shuffle(children)[0];
+    s.settings.nominatedParent = null;
+    s.settings.nominatedSetter = null;
+    s.previousParent = parent;
+  }
+  // Shuffle once, then repeat the same order for each pass through the players.
   const order = shuffle(children);
   const tiers = TIERS[settings.difficulty];
   const cards = draw(settings, totalCards(settings, ids.length)).map((answer, i) => ({
@@ -41,21 +49,23 @@ export function start(s, now) {
   }));
   s.round = {
     id:crypto.randomUUID(), phase:'topic', version:0, mode, ids, parent, setter, settings,
-    tiers, cards, turn:0, topic:null, candidate:settings.topicSource === 'random' ? randomTopic() : null,
+    tiers, cards, turn:0, topic:null, candidate:randomTopic(),
     lives:mode === 1 ? settings.mode1Lives : mode === 3 ? 1 : null,
     misses:0, history:[], excluded:[], proposal:null, votes:{}, feedback:null, result:null, attempts:0, queue:[],
   };
 }
-const randomTopic = () => TOPICS[Math.floor(Math.random() * TOPICS.length)];
 export function topicAction(r, id, action) {
   requireGame(r.phase === 'topic' && id === r.setter, 'お題を決められるのは担当者です。');
   if (action.type === 'reroll') {
-    requireGame(r.settings.topicSource === 'random', '自由入力のお題です。');
-    r.candidate = randomTopic();
+    r.candidate = randomTopic(r.candidate);
     r.version++;
   } else {
-    r.topic = r.settings.topicSource === 'random' ? r.candidate : clean(action.word, 60);
-    requireGame(r.topic, 'お題を1〜60文字で入力してください。', 400);
+    // Old tabs omitted source and only sent word when using free text.
+    const source = action.source ?? (Object.hasOwn(action,'word') ? 'custom' : 'random');
+    requireGame(source === 'random' || source === 'custom', 'お題の選び方が無効です。', 400);
+    const topic = source === 'random' ? r.candidate : clean(action.word, 60);
+    requireGame(topic, 'お題を1〜60文字で入力してください。', 400);
+    r.topic = topic;
     phase(r, 'input');
   }
 }

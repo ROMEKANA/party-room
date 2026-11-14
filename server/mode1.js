@@ -23,13 +23,13 @@ export function mode1(r, id, a, host) {
       Object.defineProperty(r.votes,id,{value:a.choice, enumerable:true, writable:true, configurable:true});
       const votes = Object.values(r.votes);
       const eligibleCount = r.ids.length - 1;
-      if (votes.filter(v => v === 'good').length >= Math.ceil(eligibleCount / 2)) {
-        judge(r,card);
-      } else if (votes.length === eligibleCount) {
+      if (votes.filter(v => v === 'bad').length >= Math.ceil(eligibleCount / 2)) {
         r.proposal = null;
         r.votes = {};
         r.feedback = {rejected:true};
         phase(r, 'placement');
+      } else if (votes.length === eligibleCount) {
+        judge(r,card);
       }
       break;
     }
@@ -62,7 +62,7 @@ function judge(r, card) {
     (r.history ??= []).push({word:card.word,tier,answer:card.answer});
   }
   if (correct || r.settings.mode1Wrong === 'reveal') {
-    card.placed = card.answer;
+    card.placed = tier;
     card.fixed = true;
     r.feedback.answer = card.answer;
   }

@@ -72,50 +72,55 @@ export function dialogs(getState,send) {
     dialog.append(body,alert);
     const act = (type, fields = {}) => send(type,fields,r);
     const done = async (type,fields = {}) => {if (await act(type,fields)) close();};
-    const actions = (...buttons) => {
+    const actionRow = (...buttons) => {
       const line = el('div','action-row');
       line.append(...buttons);
-      body.append(line);
+      return line;
     };
+    const actions = (...buttons) => body.append(actionRow(...buttons));
     const text = (value,cls = 'dialog-copy') => body.append(el('p',cls,value));
     if (kind==='input' || kind==='topic') {
-      if (kind==='topic' && s.settings.topicSource==='random') {
-        text(r.candidate,'dialog-word');
-        actions(button('引き直す',()=>act('reroll')),button('このお題で確定',()=>act('topic'),'primary'));
+      const isTopic = kind==='topic';
+      const input = el('input');
+      input.type = 'text';
+      input.maxLength = 120;
+      input.dataset.key = String(r.input?.id ?? r.id);
+      input.value = drafts.get(input.dataset.key) ?? '';
+      input.autocomplete = 'off';
+      input.setAttribute('aria-label',isTopic?'自由入力のお題':'単語');
+      if (isTopic) {
+        const random = el('section','topic-random');
+        random.append(el('h3','topic-label','内蔵のお題'),el('p','dialog-word',r.candidate),
+          actionRow(button('引き直す',()=>act('reroll')),
+            button('このお題で確定',()=>act('topic',{source:'random'}),'primary')));
+        body.append(random);
       } else {
-        const input = el('input');
-        input.type = 'text';
-        input.maxLength = 120;
-        input.dataset.key = String(r.input?.id ?? r.id);
-        input.value = drafts.get(input.dataset.key) ?? '';
-        input.autocomplete = 'off';
-        input.setAttribute('aria-label',kind==='input'?'単語':'お題');
-        if (kind==='input') {
-          text(r.topic);
-          text('あなたの秘密Tier  '+r.input.tier,'secret-tier');
-        }
-        const form = el('form','input-form');
-        const submit = el('button','primary',kind==='input'?'提出':'お題を確定');
-        const validate = () => {submit.disabled = !input.value.trim() || [...input.value.trim()].length>60;};
-        validate();
-        input.oninput = () => {
-          drafts.set(input.dataset.key,input.value);
-          validate();
-          error('');
-        };
-        form.onsubmit = async event => {
-          event.preventDefault();
-          if (submit.disabled) return;
-          const ok = await act(kind==='input'?'word':'topic',{card:r.input?.id,word:input.value});
-          if (ok) drafts.delete(input.dataset.key);
-        };
-        form.append(input,submit);
-        body.append(form);
-        if (focused) input.focus({preventScroll:true});
+        text(r.topic);
+        text('あなたの秘密Tier  '+r.input.tier,'secret-tier');
       }
+      const form = el('form','input-form'+(isTopic?' topic-custom':''));
+      const submit = el('button','primary',isTopic?'入力したお題で確定':'提出');
+      const validate = () => {submit.disabled = !input.value.trim() || [...input.value.trim()].length>60;};
+      validate();
+      input.oninput = () => {
+        drafts.set(input.dataset.key,input.value);
+        validate();
+        error('');
+      };
+      form.onsubmit = async event => {
+        event.preventDefault();
+        if (submit.disabled) return;
+        const word = input.value;
+        const ok = await (isTopic ? act('topic',{source:'custom',word}) : act('word',{card:r.input.id,word}));
+        if (ok) drafts.delete(input.dataset.key);
+      };
+      if (isTopic) form.append(el('h3','topic-label','自由入力'));
+      form.append(input,submit);
+      body.append(form);
+      if (focused) input.focus({preventScroll:true});
     } else if (kind==='vote') {
       text('「'+r.current.word+'」 → '+r.proposal.tier,'dialog-word');
-      text('投票対象の半数以上がGoodで承認');
+      text('Badが半数に達すると即否決。それまでは全員の投票を待ちます。');
       actions(button('👍 Good',()=>act('vote',{proposal:r.proposal.id,choice:'good'}),'vote good'),
         button('👎 Bad',()=>act('vote',{proposal:r.proposal.id,choice:'bad'}),'vote bad'));
     } else if (kind==='confirm') {
@@ -149,7 +154,7 @@ export function dialogs(getState,send) {
     } else if (kind==='rules') {
       const pages = [
         ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。ゲームに制限時間はありません。'],
-        ['みんなでTier表','手番の人が秘密Tierに沿って単語を出します。他の人が配置を提案し、投票対象の半数以上がGoodで判定。間違えるとライフが減ります。'],
+        ['みんなでTier表','手番の人が秘密Tierに沿って単語を出します。他の人が配置を提案します。Badが投票対象の半数に達するとすぐに否決され、承認できる場合は全員の投票後に判定します。間違えるとライフが減ります。'],
         ['親がTierを当てる','子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。完璧モードは全問正解、正答率モードは設定した割合を目指します。'],
         ['親がお題を当てる','子が提出するたびに正解Tierへカードが加わります。親は完成した表を見て口頭で回答し、お題の担当者が判定します。'],
       ];
@@ -198,23 +203,24 @@ function settings(body,s,tab,onTab,change) {
   ['基本','モード','詳細'].forEach((name,i)=>tabs.append(button(name,()=>onTab(i),i===tab?'selected control':'control')));
   body.append(tabs,el('p','dialog-copy',editable?'ホストが変更できます。':s.round?'進行中のため閲覧のみ。':'待機中のホストが変更できます。'));
   const range = (n,step=1) => Array.from({length:n},(_,i)=>(i+1)*step);
-  const select = (title,key,options) => {
+  const select = (title,key,options,available = true) => {
     const label = el('label','setting-row',title), input = el('select');
     options.forEach((option,i)=>{
       const [value,caption] = Array.isArray(option)?option:[option,option];
       const node = el('option','',caption);
       node.value = i;
-      node.selected = Object.is(st[key],value);
+      node.selected = Object.is(st[key] ?? null,value);
       input.append(node);
     });
-    input.disabled = !editable;
+    input.disabled = !editable || !available;
+    label.classList.toggle('unavailable',!available);
     input.onchange = async () => {
       const option = options[input.selectedIndex];
       input.disabled = true;
       const ok = await change({[key]:Array.isArray(option)?option[0]:option});
       if (!ok && input.isConnected) {
-        input.selectedIndex = options.findIndex(o=>Object.is(Array.isArray(o)?o[0]:o,st[key]));
-        input.disabled = !editable;
+        input.selectedIndex = options.findIndex(o=>Object.is(Array.isArray(o)?o[0]:o,st[key] ?? null));
+        input.disabled = !editable || !available;
       }
     };
     label.append(input);
@@ -225,22 +231,31 @@ function settings(body,s,tab,onTab,change) {
     select('難易度','difficulty',[['easy','簡単・3段階'],['normal','普通・5段階'],['hard','難しい・7段階']]);
     select('1人あたりの枚数','cardsPerPlayer',range(10));
   } else if (tab===1) {
+    const playerOptions = (key,excluded = null) => s.players
+      .filter(p=>(p.online || p.id===st[key]) && p.id!==excluded)
+      .map(p=>[p.id,p.id]);
     if (st.mode===1) {
       select('ライフ','mode1Lives',range(30));
       select('不正解時','mode1Wrong',[['reveal','正解を公開'],['retry','同じカードで再挑戦']]);
-      if (st.difficulty==='hard') select('端Tierの出現順を制限','edgePrerequisites',[[true,'ON'],[false,'OFF']]);
+      select('次のお題担当','nominatedMode1Setter',[[null,'ランダム一巡'],...playerOptions('nominatedMode1Setter')]);
     } else {
       if (st.mode===2) {
         select('勝利条件','mode2Rule',[['perfect','完璧モード'],['accuracy','正答率モード']]);
         if (st.mode2Rule==='perfect') select('回答提出上限','mode2Attempts',range(10));
         else select('目標正答率','mode2Target',range(10,10).map(n=>[n,n+'%']));
       } else body.append(el('p','dialog-copy','ライフは1回です。'));
-      const players = s.players.filter(p=>p.online || p.id===st.nominatedParent);
-      select('次の親','nominatedParent',[[null,'ランダム一巡'],...players.map(p=>[p.id,short(p.id)])]);
+      select('次の親','nominatedParent',[[null,'ランダム一巡'],...playerOptions('nominatedParent')]);
+      const nominated = Boolean(st.nominatedParent);
+      select('次のお題担当','nominatedSetter',
+        [[null,nominated?'自動で決める':'親を指名すると選べます'],...playerOptions('nominatedSetter',st.nominatedParent)],
+        nominated);
     }
   } else {
     select('Tier抽選','randomMode',[['random','完全ランダム'],['balanced','できるだけ均等'],['centerWeighted','真ん中多め']]);
-    select('お題','topicSource',[['random','内蔵お題'],['custom','自由入力']]);
+    if (st.mode===1 && st.difficulty==='hard') {
+      select('端Tierの出現順を制限','edgePrerequisites',[[true,'ON'],[false,'OFF']]);
+      body.append(el('p','dialog-copy','ONの場合、SSはSが、EはDが一度出てから登場します。配布枚数は変わりません。'));
+    }
     body.append(el('p','dialog-copy','制限時間は無制限です。'));
   }
 }

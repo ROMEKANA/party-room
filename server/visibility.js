@@ -5,8 +5,9 @@ import {TIERS,startProblem} from '../web/config.js';
 
 export function visible(s, id, now) {
   const r = s.round;
+  const {topicSource, ...settings} = s.settings;
   const state = {
-    me:id, host:s.host, settings:s.settings,
+    me:id, host:s.host, settings,
     tiers:TIERS[(r?.settings ?? s.settings).difficulty],
     startProblem:startProblem(s.settings,connected(s,now).length),
     players:s.players.filter(p => !p.left || r?.ids.includes(p.id)).map(p => {
@@ -32,7 +33,7 @@ export function visible(s, id, now) {
   const showWords = r.mode !== 2 || !['topic','input'].includes(r.phase);
   const cardView = c => ({
     id:c.id, owner:c.owner, word:c.word, placed:c.placed, fixed:c.fixed,
-    ...(result ? {answer:c.answer} : {}),
+    ...(result || (r.mode === 1 && c.fixed && c.placed !== c.answer) ? {answer:c.answer} : {}),
   });
   const cards = showWords ? r.cards.filter(c => c.word).map(cardView) : [];
   if (r.mode === 1 && r.proposal) {

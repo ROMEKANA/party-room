@@ -11,7 +11,7 @@ export const DEFAULTS = {
   mode:1, difficulty:'normal', cardsPerPlayer:3, randomMode:'balanced',
   edgePrerequisites:true, mode1Lives:3, mode1Wrong:'reveal',
   mode2Rule:'perfect', mode2Attempts:3, mode2Target:70,
-  topicSource:'random', nominatedParent:null,
+  nominatedParent:null, nominatedMode1Setter:null, nominatedSetter:null,
 };
 export const totalCards = (settings, count) =>
   Math.max(0, count - (settings.mode === 1 ? 0 : 1)) * settings.cardsPerPlayer;

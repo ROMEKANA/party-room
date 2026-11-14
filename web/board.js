@@ -58,9 +58,10 @@ export function board(state,onCard) {
       const tile = button('',()=>onCard(card),'tile'+(card.provisional?' provisional':'')+
         (card.answer && card.answer!==card.placed?' wrong':''));
       tile.title = card.word;
-      tile.setAttribute('aria-label',card.word+'・'+tier);
+      const answer = card.answer && card.answer!==tier ? card.answer : null;
+      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:''));
       tile.append(el('span','name',card.word));
-      if (card.answer && card.answer!==card.placed) tile.append(el('span','answer-chip',card.answer));
+      if (answer) tile.append(el('span','answer-chip',answer));
       area.append(tile);
       newPositions.set(card.id,{tier,tile});
     }
@@ -104,6 +105,7 @@ export function fit() {
     area.style.setProperty('--card-w',best.w+'px');
     area.style.setProperty('--card-h',best.h+'px');
     area.style.setProperty('--name-size',Math.max(4,Math.min(13,best.h*.54,best.w*.42))+'px');
+    area.style.setProperty('--answer-size',Math.max(4,Math.min(16,(best.h-2)*.55,(best.w-2)*.48))+'px');
     area.style.setProperty('--tile-gap',gap+'px');
   }
 }

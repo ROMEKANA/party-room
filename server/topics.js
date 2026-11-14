@@ -8,3 +8,8 @@ export const TOPICS = [
   'もらってうれしいプレゼント','一生無料ならうれしいもの',
   '映画の主人公に向いていそうな職業','雨の日にやりたいこと','寝起きに起こるとうれしいこと',
 ];
+
+export function randomTopic(previous = null) {
+  const alternatives = TOPICS.filter(topic => topic !== previous);
+  return alternatives[Math.floor(Math.random() * alternatives.length)];
+}

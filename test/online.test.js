@@ -81,7 +81,7 @@ async function round(mode,extra={}) {
   const h=harness();
   const host=await h.join('host'), b=await h.join('b'), c=await h.join('c');
   const players={host,b,c};
-  const set=await host.send('settings',{settings:{mode,difficulty:'easy',cardsPerPlayer:2,topicSource:'custom',...extra}});
+  const set=await host.send('settings',{settings:{mode,difficulty:'easy',cardsPerPlayer:2,...extra}});
   assert.equal(set.status,200);
   assert.equal((await b.send('settings',{settings:{mode:1}})).status,409);
   assert.equal((await host.send('start')).status,200);
@@ -187,7 +187,7 @@ test('only one competing proposal is committed and stale vote cannot cross candi
   const outcomes=await Promise.all(voters.map((v,i)=>v.send('propose',{card:input.id,tier:r.tiers?.[i]??['A','B'][i]},r)));
   assert.deepEqual(outcomes.map(v=>v.status).sort(),[200,409]);
   const old=(await host.state()).round;
-  for (const v of voters) await v.send('vote',{proposal:old.proposal.id,choice:'bad'});
+  await voters[0].send('vote',{proposal:old.proposal.id,choice:'bad'});
   await voters[0].send('propose',{card:input.id,tier:'C'});
   assert.equal((await voters[0].send('vote',{proposal:old.proposal.id,choice:'good'},old)).status,409);
   assert.equal((await host.state()).round.lives,3);
@@ -205,7 +205,7 @@ test('ten players complete a hard 100-card mode 1 round and every card appears o
     const {round}=h.raw();
     const card=round.cards[i], writer=who(card.owner);
     const view=(await writer.state()).round;
-    const voters=group.filter(p=>p!==writer).slice(0,5);
+    const voters=group.filter(p=>p!==writer);
     assert.equal((await writer.send('word',{card:view.input.id,word:'カード '+i})).status,200);
     assert.equal((await voters[0].send('propose',{card:card.id,tier:card.answer})).status,200);
     const r=(await voters[0].state()).round;
@@ -218,4 +218,47 @@ test('ten players complete a hard 100-card mode 1 round and every card appears o
   assert.equal(r.fixed,100);
   assert.equal(new Set(r.cards.map(c=>c.id)).size,100);
   assert.equal(new Set(r.cards.map(c=>c.placed)).size,7);
+});
+
+test('topic chooser supports reroll and custom input, and hides candidate and topic from a nominated parent', async()=>{
+  const {host,b,c,parent,setter}=await round(3,{nominatedParent:'b',nominatedSetter:'c'});
+  assert.equal(parent,b);
+  assert.equal(setter,c);
+  const before=(await c.state()).round;
+  assert.ok(before.candidate);
+  assert.equal(Object.hasOwn((await b.state()).round,'candidate'),false);
+  assert.equal((await host.send('reroll')).status,409);
+  assert.equal((await c.send('reroll')).status,200);
+  const changed=(await c.state()).round;
+  assert.notEqual(changed.candidate,before.candidate);
+  assert.equal((await c.send('topic',{source:'random'},before)).status,409);
+  assert.equal((await c.send('topic',{source:'custom',word:'  '})).status,400);
+  const topic='自由に選ぶお題';
+  assert.equal((await c.send('topic',{source:'custom',word:topic})).status,200);
+  assert.equal((await c.state()).round.topic,topic);
+  assert.equal((await b.state()).round.topic,null);
+  assert.equal((await host.state()).settings.nominatedSetter,null);
+});
+
+test('mode 1 nomination is one-time and skips no one in random rotation; mode 2 cannot nominate the parent as setter',async()=>{
+  const h=harness();
+  const [host,b,c]=await Promise.all(['h','b','c'].map(name=>h.join(name)));
+  const owner=[host,b,c].find(p=>p.name===h.raw().host);
+  const player=owner===b?c:b;
+  assert.equal((await owner.send('settings',{settings:{nominatedMode1Setter:player.name}})).status,200);
+  await owner.send('start');
+  assert.equal(h.raw().round.setter,player.name);
+  assert.equal(h.raw().rotation.setter,null);
+  await owner.send('end');
+  const cycle=[];
+  for (let i=0;i<3;i++) {
+    await owner.send('start');
+    cycle.push(h.raw().round.setter);
+    await owner.send('end');
+  }
+  assert.equal(new Set(cycle).size,3);
+  assert.equal((await owner.send('settings',{settings:{mode:2,nominatedSetter:player.name}})).status,409);
+  assert.equal((await owner.send('settings',{settings:{mode:2,nominatedParent:player.name,nominatedSetter:player.name}})).status,409);
+  assert.equal((await owner.send('settings',{settings:{mode:2,nominatedParent:player.name,nominatedSetter:owner.name}})).status,200);
+  assert.equal((await owner.send('settings',{settings:{nominatedParent:null}})).state.settings.nominatedSetter,null);
 });
