@@ -402,6 +402,7 @@ function settings(body,s,tab,onTab,change,resetHistory) {
         if (st.mode2Rule==='perfect') select('回答提出上限','mode2Attempts',range(10));
         else select('目標正答率','mode2Target',range(10,10).map(n=>[n,n+'%']));
       } else body.append(el('p','dialog-copy','ライフは1回です。'));
+      select('親にカードの記入者を表示',st.mode===2?'mode2ShowAuthors':'mode3ShowAuthors',[[true,'ON'],[false,'OFF']]);
       select('次の親','nominatedParent',[[null,'ランダム一巡'],...playerOptions('nominatedParent')]);
       const nominated = Boolean(st.nominatedParent);
       select('次のお題担当','nominatedSetter',

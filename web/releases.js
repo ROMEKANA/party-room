@@ -2,12 +2,15 @@ import {el} from './board.js';
 
 const releases = [
   {
+    version:'1.1.2',
+    title:'親へのカード記入者表示を切り替え',
+    changes:[
+      'tier並び当てとtierお題当てで、親がカードをタップしたときに記入者を見られるか設定できます。初期設定はどちらもOFFです。',
+    ],
+  },
+  {
     version:'1.1.1',
     title:'tier並び当てにライフ表示を追加',
-    changes:[
-      '完璧モードでは不正解の提出ごとにライフが1つ減り、正答率モードでは目標を達成すると1/1、未達だと0/1になります。',
-      '対戦履歴には最後に提出したTier表、正答数、終了時のライフが残ります。',
-    ],
   },
   {
     version:'1.1.0',
@@ -21,7 +24,7 @@ const releases = [
     title:'対戦履歴と得点を追加',
     changes:[
       '直近30分の対戦結果から、Tier表、正誤、記入者、得点を見返せるようになりました。',
-      'モード1で得点をオンにすると、正解したカードの記入者とGoodを押した人に点が入り、最後に表示されます。',
+      '「みんなでtier表」で得点をオンにすると、正解したカードの記入者とGoodを押した人に点が入り、最後に表示されます。',
       'ライフを「残り／初期値」で表示し、カードは各ランクの左から配置順に並ぶようになりました。',
     ],
   },
@@ -53,9 +56,12 @@ export function releaseHistory(root) {
     const entry = el('article','release-entry');
     const heading = el('h3','release-heading');
     heading.append(el('span','release-version','v'+version),el('span','',title));
-    const details = el('ul','release-changes');
-    details.append(...changes.map(change=>el('li','',change)));
-    entry.append(heading,details);
+    entry.append(heading);
+    if (changes?.length) {
+      const details = el('ul','release-changes');
+      details.append(...changes.map(change=>el('li','',change)));
+      entry.append(details);
+    }
     list.append(entry);
   }
   root.append(list);

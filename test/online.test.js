@@ -468,3 +468,45 @@ test('mode 2 perfect history saves the last submission even when a previous answ
   assert.deepEqual([saved.result.lives,saved.result.initialLives,saved.result.correctCount],[0,3,1]);
   assert.deepEqual(saved.cards.map(c=>[c.id,c.placed]),final.cards.map(c=>[c.id,c.placed]));
 });
+
+test('parent author visibility is independent for the two guessing modes and defaults to hidden',async()=>{
+  for (const mode of [2,3]) {
+    for (const enabled of [false,true]) {
+      const otherSetting = mode===2 ? 'mode3ShowAuthors' : 'mode2ShowAuthors';
+      const setting = mode===2 ? 'mode2ShowAuthors' : 'mode3ShowAuthors';
+      const {h,host,parent,players,setter,topic} = await round(mode,{
+        mode2Rule:'accuracy', [otherSetting]:!enabled, ...(enabled ? {[setting]:true} : {}),
+      });
+      await setter.send('topic',{word:topic});
+      const children = Object.values(players).filter(p=>p!==parent);
+      for (const child of children) {
+        for (let i=0;i<2;i++) {
+          const {input} = (await child.state()).round;
+          await child.send('word',{card:input.id,word:child.name+i});
+          if (mode===3) assert.equal((await parent.state()).round.topic,null);
+        }
+      }
+      let view = await parent.state();
+      assert.equal(view.settings[setting],enabled);
+      if (mode===2) {
+        assert.ok(view.round.current);
+        assert.equal(Object.hasOwn(view.round.current,'owner'),enabled);
+        for (const id of h.raw().round.queue) {
+          const card = h.raw().round.cards.find(c=>c.id===id);
+          await parent.send('place',{card:id,tier:card.answer});
+        }
+      }
+      view = await parent.state();
+      assert.equal(view.round.cards.length,4);
+      assert.ok(view.round.cards.every(card=>Object.hasOwn(card,'owner')===enabled));
+      assert.ok((await children[0].state()).round.cards.every(card=>Object.hasOwn(card,'owner')));
+      if (mode===2) await parent.send('submit');
+      else await setter.send('judge',{win:true});
+      const result = (await parent.state()).round;
+      assert.equal(result.phase,'result');
+      const history = (await host.history(result.id)).record;
+      assert.deepEqual(history.cards.map(card=>card.owner),result.cards.map(card=>card.owner));
+      assert.ok(result.cards.every(card=>children.some(child=>child.name===card.owner)));
+    }
+  }
+});

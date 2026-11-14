@@ -5,7 +5,8 @@ import {DEFAULTS,TIERS,startProblem} from '../web/config.js';
 
 export function visible(s, id, now) {
   const r = s.round;
-  const hideAuthors = r?.mode === 3 && id === r.parent && r.phase !== 'result';
+  const showAuthors = r?.mode === 2 ? r.settings.mode2ShowAuthors : r?.settings.mode3ShowAuthors;
+  const hideAuthors = r && r.mode !== 1 && id === r.parent && r.phase !== 'result' && !showAuthors;
   const {topicSource, ...settings} = {...DEFAULTS,...s.settings};
   const state = {
     me:id, host:s.host, settings, historyVersion:s.historyVersion ?? null,
@@ -17,7 +18,8 @@ export function visible(s, id, now) {
       if (r?.mode === 1) {
         if (Object.hasOwn(r.votes,p.id)) mark = r.votes[p.id];
         else if (r.cards[r.turn].owner === p.id && r.cards[r.turn].word) mark = 'done';
-      } else if (!hideAuthors && r?.phase === 'input' && r.ids.includes(p.id) && p.id !== r.parent) {
+      } else if (r?.phase === 'input' && r.ids.includes(p.id) && p.id !== r.parent &&
+          !(r.mode === 3 && hideAuthors)) {
         mark = remaining || 'done';
       }
       return {id:p.id,color:p.color,online:isOnline(p,now),left:p.left,mark,
@@ -42,7 +44,12 @@ export function visible(s, id, now) {
   const cards = [];
   if (showWords || peekMode2) {
     cards.push(...orderedCards(r,peekMode2).map(cardView));
-    if (!peekMode2) cards.push(...r.cards.filter(c => c.word && !c.placed).map(cardView));
+    if (!peekMode2) {
+      const unplaced = r.cards.filter(c => c.word && !c.placed);
+      // The original deal cycles through the writers. Keep that order private.
+      if (hideAuthors) unplaced.sort((a,b) => a.id.localeCompare(b.id));
+      cards.push(...unplaced.map(cardView));
+    }
   }
   if (r.mode === 1 && r.proposal) {
     const proposed = cards.find(c => c.id === current.id);
