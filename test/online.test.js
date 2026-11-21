@@ -579,9 +579,9 @@ test('tier guessing rejects empty tiers and keeps all placements for correction'
 
 test('consensus isolates HTTP views, compares finalized boards, and saves one complete history',async()=>{
   for (const withMismatch of [false,true]) {
-    const {h,host,b,c,setter,topic,players} = await round(4,{mode4ShowAuthors:withMismatch});
+    const {h,host,c,setter,topic,players} = await round(4,{mode4ShowAuthors:withMismatch});
+    let {b} = players;
     const entrants = Object.values(players);
-    assert.equal((await h.join(b.name)).code,'nameInUse');
     assert.equal((await h.req('join',{name:b.name},b.token)).token,b.token);
     const watcher = await h.join('watcher');
     assert.equal((await setter.send('topic',{word:topic})).status,200);
@@ -595,6 +595,14 @@ test('consensus isolates HTTP views, compares finalized boards, and saves one co
       }));
       assert.ok(results.every(response=>response.status===200));
       if (i===0) {
+        const previous = b;
+        const before = (await previous.state()).round;
+        b = await h.join(previous.name);
+        assert.ok(b.token);
+        assert.notEqual(b.token,previous.token);
+        assert.equal((await previous.get()).status,401);
+        assert.deepEqual((await b.state()).round,before);
+        entrants[entrants.indexOf(previous)] = b;
         for (const player of entrants) {
           const view = await player.state();
           assert.deepEqual(view.round.ownCards.map(card=>card.word),[player.name+i]);

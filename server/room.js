@@ -32,8 +32,7 @@ export function join(s, name, now, token) {
   const id = typeof name === 'string' ? name.trim().normalize('NFC') : '';
   requireGame(id && [...id].length <= 20 && !/[\p{Cc}]/u.test(id), '名前を1〜20文字で入力してください。', 400);
   let p = s.players.find(person => person.id === id);
-  if (p && s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(id)) {
-    requireGame(p.token && token === p.token, '対戦中の名前です。参加したタブから再接続してください。', 409, 'nameInUse');
+  if (p?.token && token === p.token && s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(id)) {
     p.seen = Math.max(p.seen,now);
     return p;
   }
