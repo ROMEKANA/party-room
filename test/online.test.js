@@ -410,7 +410,7 @@ test('history omits unfinished rounds, expires after 30 minutes, and is deleted 
 });
 
 test('mode 2 appends a repositioned card to the end of the target tier in play and history',async()=>{
-  const {host,parent,players,setter}=await round(2,{mode2Rule:'accuracy'});
+  const {h,host,parent,players,setter}=await round(2,{mode2Rule:'accuracy',mode2Target:100});
   await setter.send('topic',{word:'配置順'});
   for (const player of Object.values(players).filter(p=>p!==parent)) {
     for (let i=0;i<2;i++) {
@@ -418,11 +418,14 @@ test('mode 2 appends a repositioned card to the end of the target tier in play a
       await player.send('word',{card:input.id,word:player.name+i});
     }
   }
+  const {queue,cards} = h.raw().round;
+  const answers = queue.map(id=>cards.find(card=>card.id===id).answer);
+  const tiers = answers.join('')==='AABC' ? ['A','A','C','B'] : ['A','A','B','C'];
   const order = [];
   for (let i=0;i<4;i++) {
     const {current} = (await parent.state()).round;
     order.push(current.id);
-    await parent.send('place',{card:current.id,tier:['A','A','B','C'][i]});
+    await parent.send('place',{card:current.id,tier:tiers[i]});
   }
   assert.deepEqual((await host.state()).round.cards.map(c=>c.id),order);
   const [first,second,...rest] = order;
@@ -579,8 +582,8 @@ test('tier guessing rejects empty tiers and keeps all placements for correction'
 
 test('consensus isolates HTTP views, compares finalized boards, and saves one complete history',async()=>{
   for (const withMismatch of [false,true]) {
-    const {h,host,c,setter,topic,players} = await round(4,{mode4ShowAuthors:withMismatch});
-    let {b} = players;
+    const {h,c,setter,topic,players} = await round(4,{mode4ShowAuthors:withMismatch});
+    let {host,b} = players;
     const entrants = Object.values(players);
     assert.equal((await h.req('join',{name:b.name},b.token)).token,b.token);
     const watcher = await h.join('watcher');
@@ -631,6 +634,13 @@ test('consensus isolates HTTP views, compares finalized boards, and saves one co
         player.send('place',{card,tier:index===0?'A':['B','C','A'][i%3]})));
       assert.ok(results.every(response=>response.status===200));
       const second = await b.state();
+      if (i===0) {
+        const previous = b;
+        b = await h.join(previous.name);
+        assert.equal((await previous.send('place',{card,tier:'C'},second.round)).status,401);
+        assert.deepEqual((await b.state()).round,second.round);
+        entrants[entrants.indexOf(previous)] = b;
+      }
       assert.equal(second.round.remaining,order.length-i-1);
       assert.ok(second.round.cards.every((card,j)=>card.placed===['B','C','A'][j%3]));
       assert.equal(second.players.find(player=>player.id===host.name).mark<=order.length-i-1,true);
@@ -650,6 +660,13 @@ test('consensus isolates HTTP views, compares finalized boards, and saves one co
     const payload = {type:'submit',id:crypto.randomUUID(),round:draft.id,version:draft.version,draftRevision:draft.draftRevision};
     assert.equal((await h.req('action',payload,host.token)).status,200);
     assert.equal((await h.req('action',payload,host.token)).status,200);
+    const originalHost = host;
+    const submitted = (await originalHost.state()).round;
+    host = await h.join(originalHost.name);
+    assert.equal((await originalHost.get()).status,401);
+    const resumed = await host.state();
+    assert.equal(resumed.host,host.name);
+    assert.deepEqual(resumed.round,submitted);
     h.advance(16_000);
     const wait = (await host.state()).round;
     assert.equal(wait.final,true);
