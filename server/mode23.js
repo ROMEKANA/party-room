@@ -1,6 +1,6 @@
 import {currentCardId,placeNext,requireFullBoard,startPlacement} from './placement.js';
 import {isOnline, requireGame} from './room.js';
-import {finish, phase, placeCard, writeCard} from './round.js';
+import {attemptLimit, finish, phase, placeCard, writeCard} from './round.js';
 
 export function judgeId(s, r, now) {
   const online = id => isOnline(s.players.find(p => p.id === id),now);
@@ -51,8 +51,8 @@ export function mode23(s, r, id, a, host, now) {
     const accuracy = r.settings.mode2Rule === 'accuracy';
     r.attempts++;
     const win = accuracy ? score * 100 >= r.settings.mode2Target * r.cards.length : score === r.cards.length;
-    r.feedback = {score, win, done:win || accuracy || r.attempts >= r.settings.mode2Attempts};
-    if (accuracy) finish(r,win);
+    r.feedback = {score, win, done:win || r.attempts >= attemptLimit(r)};
+    if (accuracy && r.feedback.done) finish(r,win);
     else phase(r,'attemptResult');
   } else requireGame(false, 'この操作はできません。');
 }

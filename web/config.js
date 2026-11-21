@@ -10,7 +10,7 @@ export const MODES = {1:'みんなでtier表', 2:'tier並び当て', 3:'tierお�
 export const DEFAULTS = {
   mode:1, difficulty:'normal', cardsPerPlayer:3, randomMode:'balanced',
   edgePrerequisites:true, mode1Lives:3, mode1Wrong:'reveal', mode1Scoring:false,
-  mode2Rule:'perfect', mode2Attempts:3, mode2Target:70,
+  mode1ConfirmTurn:false, mode2Rule:'accuracy', mode2Attempts:3, mode2Target:70,
   mode2ShowAuthors:false, mode3ShowAuthors:false, mode4ShowAuthors:false,
   peekBoardWhileTyping:true,
   nominatedParent:null, nominatedMode1Setter:null, nominatedSetter:null,

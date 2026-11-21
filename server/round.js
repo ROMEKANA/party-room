@@ -51,6 +51,7 @@ export function start(s, now) {
     id:crypto.randomUUID(), phase:'topic', version:0, mode, ids, parent, setter, settings,
     tiers, cards, turn:0, topic:null, candidate:randomTopic(),
     scores:mode === 1 && settings.mode1Scoring ? Object.fromEntries(ids.map(id => [id,0])) : null,
+    ...(mode === 2 ? {attemptLimit:settings.mode2Attempts} : {}),
     lives:mode === 1 ? settings.mode1Lives : mode === 3 ? 1 : null,
     misses:0, history:[], excluded:[], proposal:null, votes:{}, feedback:null, result:null, attempts:0, queue:[],
   };
@@ -116,12 +117,13 @@ export function lifeStatus(r) {
   if (r.mode === 1) return {lives:r.lives,initialLives:r.settings.mode1Lives};
   if (r.mode === 3) return {lives:r.lives,initialLives:1};
   if (r.mode === 4) return {};
-  if (r.settings.mode2Rule === 'accuracy') {
-    return {lives:r.result?.win === false ? 0 : 1,initialLives:1};
-  }
-  const initialLives = r.settings.mode2Attempts;
+  const initialLives = attemptLimit(r);
   const failedAttempts = r.attempts - Number(r.feedback?.win === true);
   return {lives:Math.max(0,initialLives - failedAttempts),initialLives};
+}
+export function attemptLimit(r) {
+  // Accuracy rounds created before retries were introduced allowed one submission.
+  return r.attemptLimit ?? (r.settings.mode2Rule === 'accuracy' ? 1 : r.settings.mode2Attempts);
 }
 export const finish = (r, win) => {
   r.result = {win};

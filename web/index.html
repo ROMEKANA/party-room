@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="./style.css"></head>
 <body><main class="app">
   <header>
-    <div class="brand">みんなでtier表 <button id="brand-version" class="brand-version" type="button" aria-label="ver1.2.1のアップデート履歴を開く" aria-haspopup="dialog">ver1.2.1</button></div>
+    <div class="brand">みんなでtier表 <button id="brand-version" class="brand-version" type="button" aria-label="ver1.3.0のアップデート履歴を開く" aria-haspopup="dialog">ver1.3.0</button></div>
     <button id="release-history" class="control" type="button" aria-haspopup="dialog">アップデート履歴</button>
     <nav id="nav" aria-label="ゲームのメニュー" hidden>
       <button id="roundHistory">履歴</button><button id="rules">ルール</button><button id="settings">設定</button><button id="menu">メニュー</button>
@@ -35,16 +35,8 @@
   </section>
   <p id="notice" class="notice" role="status" hidden></p>
 </main>
-<section id="submission-wait" class="submission-wait" aria-labelledby="wait-title" hidden>
-  <div class="wait-content">
-    <h2 id="wait-title" tabindex="-1">提出完了</h2>
-    <p>ほかのプレイヤーを待っています</p>
-    <section id="wait-players" class="players" aria-label="提出状況"></section>
-    <button id="wait-end" class="control" type="button" hidden>途中終了</button>
-  </div>
-</section>
 <section id="overlay" class="overlay" hidden>
   <div id="dialog" class="dialog" role="dialog" aria-labelledby="dialog-title"></div>
-  <button id="peek-board" class="control peek-board" type="button" hidden>tier表を確認する</button>
+  <button id="peek-board" class="control peek-board" type="button" hidden>Tier表を確認する</button>
 </section>
 <script type="module" src="./app.js"></script></body></html>

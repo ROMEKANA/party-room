@@ -91,10 +91,10 @@ export function drawRows(root,tiers,cards,onCard,positions) {
     if (!inside.length) area.append(el('span','empty','＋'));
     for (const card of inside) {
       const answer = card.answer && card.answer!==tier ? card.answer : null;
-      const cls = 'tile'+(card.provisional?' provisional':'')+(answer?' wrong':'')+(card.mismatch?' mismatch':'');
+      const cls = 'tile'+(card.provisional?' provisional':'')+(answer || card.correct===false?' wrong':'')+(card.mismatch?' mismatch':'');
       const tile = button('',()=>onCard(card),cls);
       tile.title = card.word;
-      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:'')+(card.mismatch?'・不一致':''));
+      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:'')+(card.correct===false?'・不正解':'')+(card.mismatch?'・不一致':''));
       tile.append(el('span','name',card.word));
       if (answer) tile.append(el('span','answer-chip',answer));
       area.append(tile);
@@ -142,7 +142,7 @@ export function showLife(r,label) {
 export function resultSummary(r) {
   if (r.mode === 1) return `確定 ${r.fixed} / ${r.total} 枚 · ミス ${r.misses} 回`;
   if (r.mode === 2) return `正解 ${r.correctCount} / ${r.total} 枚 · `+
-    (r.target == null ? `提出 ${r.attempts} 回` : `${(r.correctCount/r.total*100).toFixed(1)}%（目標 ${r.target}%）`);
+    (r.target == null ? `提出 ${r.attempts} 回` : `${(r.correctCount/r.total*100).toFixed(1)}%（目標 ${r.target}%） · 提出 ${r.attempts} 回`);
   return 'お題は「'+r.topic+'」';
 }
 export function cardDescription(c) {

@@ -7,6 +7,7 @@ import {dialogs} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
 let resultRound, resultPlayer;
+let ownBoardRound, ownCardsHidden = false;
 const panel = dialogs(()=>state,(...args)=>sync.send(...args),id=>sync.history(id));
 const sync = connect((next,previous) => {
   state = next;
@@ -52,7 +53,6 @@ for (const id of ['settings','rules','menu','roundHistory']) $(id).onclick = ()=
 for (const id of ['brand-version','release-history']) {
   $(id).onclick = event=>panel.open('releaseHistory',{trigger:event.currentTarget.id});
 }
-$('wait-end').onclick = ()=>panel.open('end');
 new ResizeObserver(()=>fit()).observe($('board'));
 function viewport() {
   const view = window.visualViewport;
@@ -85,12 +85,10 @@ keepScreenAwake();
 
 function render() {
   const r = state?.round;
-  const waiting = r?.mode===4 && r.phase==='placement' && r.final;
-  const enteringWait = waiting && $('submission-wait').hidden;
-  document.querySelector('.app').inert = Boolean(waiting);
-  $('submission-wait').hidden = !waiting;
-  $('wait-end').hidden = !waiting || state.host!==state.me;
-  if (enteringWait) $('wait-title').focus({preventScroll:true});
+  if (ownBoardRound !== r?.id) {
+    ownBoardRound = r?.id;
+    ownCardsHidden = false;
+  }
   $('entrance').hidden = Boolean(state);
   $('release-history').hidden = Boolean(state);
   for (const id of ['nav','players','intro','board','deck']) $(id).hidden = !state;
@@ -106,10 +104,12 @@ function render() {
     resultRound = r.id;
     resultPlayer = r.players.find(p=>p.id===s.me)?.id ?? r.players[0].id;
   }
-  const key = JSON.stringify([s,consensusResult ? resultPlayer : null]);
+  const ownBoard = r?.mode===4 && (r.final || (consensusResult && resultPlayer===s.me));
+  const hideCards = Boolean(ownBoard && ownCardsHidden);
+  $('board').classList.toggle('cards-hidden',hideCards);
+  const key = JSON.stringify([s,consensusResult ? resultPlayer : null,hideCards]);
   if (lastScreen !== key) {
     lastScreen = key;
-    if (waiting) avatars(s,$('wait-players'));
     if (consensusResult) {
       consensusPlayers($('players'),r.players,s.me,resultPlayer,id=>{
         resultPlayer=id;
@@ -151,11 +151,11 @@ function render() {
       topic:'お題決め',input:'カード入力',placement:'Tierを選択',vote:'投票中',
       turnResult:'カード判定',attemptResult:'回答判定',oral:'お題の推理',result:'ラウンド結果',
     }[r?.phase] ?? '参加者を待っています');
-    deck(s);
+    deck(s,ownBoard,hideCards);
   }
   panel.render();
 }
-function deck(s) {
+function deck(s,ownBoard,hideCards) {
   const r = s.round, host = s.host===s.me, area = $('current'), choices = $('choices');
   const prior = area.querySelector('.hero-card')?.dataset.card;
   area.replaceChildren();
@@ -170,6 +170,17 @@ function deck(s) {
     return control;
   };
   const send = (type,fields={})=>sync.send(type,fields,r);
+  const fullBoard = (r?.mode===2 || r?.mode===4) &&
+    (['attemptResult','result'].includes(r.phase) || (r.phase==='placement' && r.cards.filter(c=>c.placed).length===r.total));
+  $('deck').classList.toggle('full-board',fullBoard);
+  const toggleOwnBoard = () => {
+    const control = add(hideCards?'自分のTier表を表示':'自分のTier表を非表示',()=>{
+      ownCardsHidden = !ownCardsHidden;
+      render();
+      $('toggle-own-board').focus({preventScroll:true});
+    },'primary');
+    control.id = 'toggle-own-board';
+  };
   const nextRound = () => {
     if (host) {
       add('同じ設定で次のラウンド',()=>send('start'),'primary').disabled=Boolean(s.startProblem);
@@ -193,6 +204,12 @@ function deck(s) {
       ? '全員のカードがそろうまでお待ちください。' : '子が秘密Tierに沿って単語を入力しています。');
     if (r.mode===4 && r.ownCards?.length) add('自分の投稿を確認・修正',()=>panel.open('ownCards'));
   } else if (r.phase==='placement' || r.phase==='vote') {
+    if (r.mode===4 && r.final) {
+      label('提出完了');
+      line('ほかのプレイヤーを待っています。');
+      toggleOwnBoard();
+      return;
+    }
     if (r.mode===4 && !r.canPlace) {
       label('Tier表を作成中');
       line('参加者がそれぞれのTier表を作っています。');
@@ -209,9 +226,7 @@ function deck(s) {
     if (r.canPlace && r.current) {
       for (const tier of s.tiers) {
         const b = button(tier,()=>{
-          if (r.mode===1) panel.open('confirm',{tier});
-          else if (r.mode===4) panel.open('confirmPlace',{tier,card:r.current});
-          else send('place',{tier,card:r.current.id});
+          send(r.mode===1?'propose':'place',{tier,card:r.current.id});
         },'choice');
         b.style.setProperty('--tier',COLORS[tier]);
         b.setAttribute('aria-label',tier+'に配置');
@@ -230,8 +245,9 @@ function deck(s) {
     line(f.word+' · 提案 '+f.tier+(f.answer?' ／ 正解 '+f.answer:' ／ 同じカードで再挑戦'));
     if (host) add(r.fixed===r.total?'結果へ':f.answer?'次へ':'再挑戦',()=>send('next'),'primary');
   } else if (r.phase==='attemptResult') {
-    label('回答の判定');
-    line(`正解は ${r.feedback.score} / ${r.total} 枚 · 提出 ${r.attempts} 回`);
+    label(r.target==null?'回答の判定':'目標正答率に届きませんでした');
+    line(r.target==null ? `正解は ${r.feedback.score} / ${r.total} 枚 · 提出 ${r.attempts} 回`
+      : resultSummary({...r,correctCount:r.feedback.score}));
     if (host) add(r.feedback.done?'結果へ':'再挑戦',()=>send('next'),'primary');
   } else if (r.phase==='oral') {
     label('口頭で回答');
@@ -239,10 +255,10 @@ function deck(s) {
     if (r.canJudge) add('正誤を判定',()=>panel.open('judge'),'primary');
   } else if (r.phase==='result') {
     label(r.mode===4 ? consensusOutcome(r.result) : r.result.win?'クリア！':'ラウンド終了 · 失敗');
-    if (r.mode!==4) line(resultSummary({...r,correctCount:r.feedback?.score,
-      target:s.settings.mode2Rule==='accuracy' ? s.settings.mode2Target : null}));
+    if (r.mode!==4) line(resultSummary({...r,correctCount:r.feedback?.score}));
     if (r.mode===1 && r.history.length) add('誤答の詳細',()=>panel.open('history'));
     if (host && s.startProblem) line(s.startProblem);
+    if (ownBoard) toggleOwnBoard();
     nextRound();
   }
 }

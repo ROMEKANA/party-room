@@ -8,6 +8,8 @@ export function dialogs(getState,send,loadHistory) {
   const overlay = $('overlay'), dialog = $('dialog'), peekButton = $('peek-board');
   let panel = null, lastKey = '', problem = '', tab = 0;
   let heldPointer = null, heldKey = null;
+  const turnStorageKey = 'tier-studio-acknowledged-turn';
+  let acknowledgedTurn = sessionStorage.getItem(turnStorageKey);
   let historyTimer;
   const historyBoard = new ResizeObserver(entries=>entries.forEach(({target})=>fit(target)));
   const stablePanels = ['settings','rules','menu','roundHistory','resetHistory'];
@@ -72,7 +74,7 @@ export function dialogs(getState,send,loadHistory) {
     if (pointer !== null && peekButton.hasPointerCapture(pointer)) peekButton.releasePointerCapture(pointer);
   }
   peekButton.addEventListener('pointerdown',event=>{
-    if (event.button !== 0 || heldPointer !== null) return;
+    if (event.button !== 0 || heldPointer !== null || heldKey !== null) return;
     event.preventDefault();
     heldPointer = event.pointerId;
     peekButton.setPointerCapture(heldPointer);
@@ -83,11 +85,19 @@ export function dialogs(getState,send,loadHistory) {
       if (event.pointerId === heldPointer) stopPeeking();
     });
   }
-  peekButton.addEventListener('contextmenu',event=>event.preventDefault());
+  peekButton.addEventListener('pointermove',event=>{
+    if (event.pointerId !== heldPointer) return;
+    const bounds = peekButton.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right ||
+        event.clientY < bounds.top || event.clientY > bounds.bottom) stopPeeking();
+  });
+  for (const type of ['contextmenu','selectstart','dragstart']) {
+    peekButton.addEventListener(type,event=>event.preventDefault());
+  }
   peekButton.addEventListener('keydown',event=>{
     if (event.key !== ' ' && event.key !== 'Enter') return;
     event.preventDefault();
-    if (event.repeat) return;
+    if (event.repeat || heldPointer !== null) return;
     heldKey = event.key;
     overlay.classList.add('peeking');
   });
@@ -98,12 +108,17 @@ export function dialogs(getState,send,loadHistory) {
   });
   peekButton.addEventListener('blur',()=>{if (heldKey !== null) stopPeeking();});
   window.addEventListener('blur',stopPeeking);
+  window.addEventListener('pagehide',stopPeeking);
   document.addEventListener('visibilitychange',()=>{if (document.hidden) stopPeeking();});
   function automatic(s) {
     const r = s?.round;
     if (!r) return null;
     if (r.phase==='topic' && r.setter===s.me) return {kind:'topic'};
-    if (r.input) return {kind:'input'};
+    if (r.input) {
+      const turn = JSON.stringify([r.id,r.input.id,s.me]);
+      if (r.confirmTurn && acknowledgedTurn!==turn) return {kind:'confirmTurn',data:{turn}};
+      return {kind:'input'};
+    }
     if (r.vote) return {kind:'vote'};
     return null;
   }
@@ -135,9 +150,8 @@ export function dialogs(getState,send,loadHistory) {
   }
   function render(force = false) {
     const s = getState(), r = s?.round;
-    if (r?.mode===4 && r.final && panel?.kind!=='end') panel = null;
     const releasesOpen = panel?.kind === 'releaseHistory';
-    if (panel && ['move','confirmPlace','submit'].includes(panel.kind) &&
+    if (panel && ['move','submit'].includes(panel.kind) &&
         panel.draftRevision !== r?.draftRevision) panel = null;
     if (!releasesOpen && (!s || (panel && !stablePanels.includes(panel.kind) &&
         (panel.round!==r?.id || panel.version!==r?.version)))) panel = null;
@@ -174,8 +188,8 @@ export function dialogs(getState,send,loadHistory) {
     if (!active) return;
     problem = '';
     const titles = {releaseHistory:'アップデート履歴',settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
-      input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirm:'配置を確認',
-      preview:'カード詳細',move:'カード詳細',ownCards:'自分の投稿',editWord:'投稿を修正',confirmPlace:'配置を確認',history:'誤答の詳細',roundHistory:active.record?(active.card && active.record.mode===4?'カード詳細':'履歴の結果'):'履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
+      input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirmTurn:'あなたの番です',
+      preview:'カード詳細',move:'カード詳細',ownCards:'自分の投稿',editWord:'投稿を修正',history:'誤答の詳細',roundHistory:active.record?(active.card && active.record.mode===4?'カード詳細':'履歴の結果'):'履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
       submit:r?.mode===4?'最終確定':'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作'};
     const head = el('div','modal-head');
     const title = el('h2','',titles[kind]);
@@ -217,6 +231,15 @@ export function dialogs(getState,send,loadHistory) {
     if (releasesOpen) {
       releaseHistory(body);
       head.querySelector('button').focus({preventScroll:true});
+    } else if (kind==='confirmTurn') {
+      const ok = button('OK',()=>{
+        acknowledgedTurn = active.data.turn;
+        sessionStorage.setItem(turnStorageKey,acknowledgedTurn);
+        render(true);
+        dialog.querySelector('input')?.focus({preventScroll:true});
+      },'primary');
+      body.append(ok);
+      ok.focus({preventScroll:true});
     } else if (kind==='ownCards') {
       ownCards();
     } else if (kind==='input' || kind==='topic' || kind==='editWord') {
@@ -269,13 +292,7 @@ export function dialogs(getState,send,loadHistory) {
       text('Goodが過半数で可決');
       actions(button('👍 Good',()=>act('vote',{proposal:r.proposal.id,choice:'good'}),'vote good'),
         button('👎 Bad',()=>act('vote',{proposal:r.proposal.id,choice:'bad'}),'vote bad'));
-    } else if (kind==='confirm') {
-      text('「'+r.current.word+'」を '+active.data.tier+' で提出しますか？','dialog-word');
-      actions(button('キャンセル',close),button('確定',()=>done('propose',{card:r.current.id,tier:active.data.tier}),'primary'));
-    } else if (kind==='confirmPlace') {
-      const {card,tier} = active.data;
-      text('「'+card.word+'」を '+tier+' に配置しますか？','dialog-word');
-      actions(button('キャンセル',close),button('確定',()=>done('place',{card:card.id,tier}),'primary'));
+
     } else if (kind==='preview' || kind==='move') {
       const c = active.data.card;
       if (r?.mode===4 && r.phase==='result') {
@@ -291,7 +308,7 @@ export function dialogs(getState,send,loadHistory) {
         const choices = el('div','placement-dialog-choices');
         choices.style.setProperty('--tier-count',s.tiers.length);
         for (const tier of s.tiers) {
-          const choice = button(tier,()=>open('confirmPlace',{card:c,tier}),'choice');
+          const choice = button(tier,()=>done('place',{card:c.id,tier}),'choice');
           choice.style.setProperty('--tier',COLORS[tier]);
           choice.setAttribute('aria-label',tier+'に移動');
           choice.disabled = tier===c.placed;
@@ -363,7 +380,7 @@ export function dialogs(getState,send,loadHistory) {
       const pages = [
         ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。'],
         [MODES[1],'手番の人が秘密Tierに沿って単語を出し、他の人が配置を提案します。Goodが過半数で可決され、配置が合っているか判定します。間違えるとライフが減ります。得点ONの場合、可決されて正解すると、記入者にGoodの数だけ、Goodを押した人にそれぞれ1点が入ります。否決・不正解で点は変わりません。得点はラウンド終了時に表示されます。'],
-        [MODES[2],'子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。提出するにはすべてのTierに1枚以上必要です。完璧モードは全問正解を目指し、不正解の提出ごとにライフが1つ減ります。正答率モードは1回の提出で、設定した正答率を目指します。'],
+        [MODES[2],'子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。提出するにはすべてのTierに1枚以上必要です。正答率モードは1回ごとの提出で目標正答率を、完全モードは全問正解を目指します。どちらも条件に届かない提出ごとにライフが1つ減り、残っていれば再挑戦できます。'],
         [MODES[3],'子が提出するたびに正解Tierへカードが加わります。親は完成した表を見て口頭で回答し、お題の担当者が判定します。'],
         [MODES[4],'全員が指定Tierに沿ってカードを投稿し、同じカードを使って各自でTier表を作ります。すべてのTierに1枚以上置いて確定します。全員がすべてのカードを同じTierに置くとクリアです。投稿時の指定Tierや同じTier内の並び順は判定に使いません。'],
       ];
@@ -398,7 +415,7 @@ export function dialogs(getState,send,loadHistory) {
       const focusable = [...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')];
       if (panel?.kind !== 'releaseHistory') {
         if (!peekButton.hidden) focusable.push(peekButton);
-        if (!$('nav').hidden && !document.querySelector('.app').inert) focusable.push(...$('nav').querySelectorAll('button'));
+        if (!$('nav').hidden) focusable.push(...$('nav').querySelectorAll('button'));
       }
       const index = focusable.indexOf(document.activeElement);
       if (index===-1 || (e.shiftKey ? index===0 : index===focusable.length-1)) {
@@ -450,6 +467,7 @@ function settings(body,s,tab,onTab,change,resetHistory) {
     if (st.mode===1) {
       select('ライフ','mode1Lives',range(30));
       select('得点','mode1Scoring',[[false,'OFF'],[true,'ON']]);
+      select('手番開始時に確認ダイアログを表示','mode1ConfirmTurn',[[false,'OFF'],[true,'ON']]);
       select('不正解時','mode1Wrong',[['reveal','正解を公開'],['retry','同じカードで再挑戦']]);
     }
     if (!hasParent(st.mode)) {
@@ -457,9 +475,9 @@ function settings(body,s,tab,onTab,change,resetHistory) {
       if (st.mode===4) select('カードの投稿者を表示する','mode4ShowAuthors',[[false,'OFF'],[true,'ON']]);
     } else {
       if (st.mode===2) {
-        select('勝利条件','mode2Rule',[['perfect','完璧モード'],['accuracy','正答率モード']]);
-        if (st.mode2Rule==='perfect') select('回答提出上限','mode2Attempts',range(10));
-        else select('目標正答率','mode2Target',range(10,10).map(n=>[n,n+'%']));
+        select('勝利条件','mode2Rule',[['accuracy','正答率モード'],['perfect','完全モード']]);
+        if (st.mode2Rule==='accuracy') select('目標正答率','mode2Target',range(10,10).map(n=>[n,n+'%']));
+        select(st.mode2Rule==='accuracy'?'挑戦回数':'回答提出上限','mode2Attempts',range(10));
       } else body.append(el('p','dialog-copy','ライフは1回です。'));
       select('親にカードの記入者を表示',st.mode===2?'mode2ShowAuthors':'mode3ShowAuthors',[[true,'ON'],[false,'OFF']]);
       select('次の親','nominatedParent',[[null,'ランダム一巡'],...playerOptions('nominatedParent')]);

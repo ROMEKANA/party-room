@@ -46,6 +46,8 @@ export function visible(s, id, now) {
   const cardView = c => ({
     id:c.id, word:c.word, placed:peekMode2 ? c.answer : c.placed, fixed:c.fixed,
     ...(!hideAuthors ? {owner:c.owner} : {}),
+    ...(r.mode === 2 && r.phase === 'attemptResult' && r.settings.mode2Rule === 'accuracy'
+      ? {correct:c.placed === c.answer} : {}),
     ...(result || (r.mode === 1 && c.fixed && c.placed !== c.answer) ? {answer:c.answer} : {}),
   });
   const cards = [];
@@ -72,6 +74,8 @@ export function visible(s, id, now) {
     fixed:r.cards.filter(c => c.fixed).length,
     ...lifeStatus(r),
     misses:r.misses, attempts:r.attempts,
+    ...(r.mode === 1 && input && r.settings.mode1ConfirmTurn ? {confirmTurn:true} : {}),
+    ...(r.mode === 2 && r.settings.mode2Rule === 'accuracy' ? {target:r.settings.mode2Target} : {}),
     input:input ? {id:input.id,tier:input.answer} : null,
     current:showWords && current?.word ? cardView(current) : null,
     cards, excluded:r.excluded, feedback:r.feedback, result:r.result,

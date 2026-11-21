@@ -72,7 +72,7 @@ export function settingsFor(s, patch, now) {
   const nominees = [null,...connected(s,now).map(p => p.id)];
   const choices = {
     mode:[1,2,3,4], difficulty:['easy','normal','hard'], randomMode:['random','balanced','centerWeighted'],
-    peekBoardWhileTyping:[true,false], edgePrerequisites:[true,false], mode1Wrong:['reveal','retry'], mode1Scoring:[true,false], mode2Rule:['perfect','accuracy'],
+    peekBoardWhileTyping:[true,false], edgePrerequisites:[true,false], mode1Wrong:['reveal','retry'], mode1Scoring:[true,false], mode1ConfirmTurn:[true,false], mode2Rule:['perfect','accuracy'],
     mode2ShowAuthors:[true,false], mode3ShowAuthors:[true,false], mode4ShowAuthors:[true,false],
     mode2Target:Array.from({length:10}, (_,i) => (i+1)*10),
     nominatedParent:nominees, nominatedMode1Setter:nominees, nominatedSetter:nominees,

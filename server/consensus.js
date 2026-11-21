@@ -70,17 +70,18 @@ export function consensusView(r, id, input, players) {
   } else if (r.phase === 'placement' && index >= 0) {
     const {placed,final,revision} = r.drafts[index];
     view.final = final;
+    const cards = consensusCards(r);
+    const cardView = ({id,word,owner}) => ({id,word,...(r.settings.mode4ShowAuthors ? {owner} : {})});
+    const byId = new Map(cards.map(card => [card.id,card]));
+    // Keep returning the requester's own board after submission.
+    view.cards = Object.entries(placed).map(([id,tier]) => ({...cardView(byId.get(id)),placed:tier}));
+    view.remaining = remainingCards(r.cards.length,view.cards.length);
     if (!final) {
-      const cards = consensusCards(r);
-      const cardView = ({id,word,owner}) => ({id,word,...(r.settings.mode4ShowAuthors ? {owner} : {})});
-      const byId = new Map(cards.map(card => [card.id,card]));
-      view.cards = Object.entries(placed).map(([id,tier]) => ({...cardView(byId.get(id)),placed:tier}));
       const next = currentCardId(r,placed);
       view.current = next ? cardView(byId.get(next)) : null;
       view.displayOrder = r.displayOrder;
       // Names are common, but the only placement map is the requester's.
       view.unplaced = cards.filter(card => !placed[card.id]).map(cardView);
-      view.remaining = remainingCards(r.cards.length,view.cards.length);
       view.draftRevision = revision;
       view.canPlace = true;
       view.canSubmit = !next;
