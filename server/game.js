@@ -1,6 +1,7 @@
 import {connected, leave, requireGame, settingsFor} from './room.js';
 import {start, topicAction} from './round.js';
 import {mode1} from './mode1.js';
+import {consensus} from './consensus.js';
 import {mode23} from './mode23.js';
 
 export function action(s, p, a, now) {
@@ -30,6 +31,7 @@ export function action(s, p, a, now) {
     requireGame(r && (r.ids.includes(p.id) || (host && a.type === 'next')), '次のラウンドをお待ちください。');
     if (a.type === 'reroll' || a.type === 'topic') topicAction(r,p.id,a);
     else if (r.mode === 1) mode1(r,p.id,a,host);
+    else if (r.mode === 4) consensus(r,p.id,a);
     else mode23(s,r,p.id,a,host,now);
   }
 }

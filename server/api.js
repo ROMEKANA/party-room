@@ -10,9 +10,10 @@ export async function api(request, db, now = Date.now()) {
   try {
     if (path === '/api/join' && request.method === 'POST') {
       const {name} = await body(request);
+      const token = request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9-]{36})$/i)?.[1];
       const updated = await update(db,s => {
         reconcile(s,now);
-        const p = join(s,name,now);
+        const p = join(s,name,now,token);
         return {id:p.id,token:p.token};
       });
       await deleteExpired(db,now).run();

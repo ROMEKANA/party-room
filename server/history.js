@@ -1,3 +1,5 @@
+import {consensusCards} from './consensus.js';
+import {MODES} from '../web/config.js';
 import {lifeStatus, orderedCards} from './round.js';
 
 const HISTORY_MS = 30 * 60 * 1000;
@@ -14,6 +16,10 @@ export function snapshot(s, now) {
     difficulty:r.settings.difficulty, count:r.ids.length, cardsPerPlayer:r.settings.cardsPerPlayer,
     total:r.cards.length, parent:r.parent,
   };
+  if (r.mode === 4) {
+    const cards = consensusCards(r).map(({id,word,owner,answer}) => ({id,word,owner,answer}));
+    return {summary,detail:{...summary,modeName:MODES[r.mode],settings:r.settings,players,tiers:r.tiers,cards,result:r.result}};
+  }
   const cards = orderedCards(r).map(({id,word,owner,placed,answer}) => ({id,word,owner,placed,answer}));
   const result = {
     win:r.result.win, ...lifeStatus(r),

@@ -1,22 +1,28 @@
 import {COLORS,MODES} from './config.js';
 import {$,avatars,board,button,el,fit,progress,resultSummary,short,showLife,showProgress} from './board.js';
 import {connect,storedName} from './sync.js';
+import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
+import {placementProblem,remainingCards} from './placement.js';
 import {dialogs} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
+let resultRound, resultPlayer;
 const panel = dialogs(()=>state,(...args)=>sync.send(...args),id=>sync.history(id));
-const sync = connect((next) => {
+const sync = connect((next,previous) => {
   state = next;
-  notice('');
+  if (!previous || next.round?.id !== previous.round?.id || next.round?.version !== previous.round?.version ||
+      next.round?.draftRevision !== previous.round?.draftRevision ||
+      $('notice').dataset.connection === 'true') notice('');
   render();
 }, (message,network) => {
-  if (network || !panel.error(message)) notice(message);
+  if (network || !panel.error(message)) notice(message,network);
 }, message => {
   state = null;
   $('join-error').textContent = message;
   render();
 });
-function notice(message) {
+function notice(message,network = false) {
+  $('notice').dataset.connection = String(network);
   $('notice').textContent = message;
   $('notice').hidden = !message;
 }
@@ -46,6 +52,7 @@ for (const id of ['settings','rules','menu','roundHistory']) $(id).onclick = ()=
 for (const id of ['brand-version','release-history']) {
   $(id).onclick = event=>panel.open('releaseHistory',{trigger:event.currentTarget.id});
 }
+$('wait-end').onclick = ()=>panel.open('end');
 new ResizeObserver(()=>fit()).observe($('board'));
 function viewport() {
   const view = window.visualViewport;
@@ -77,6 +84,13 @@ window.addEventListener('pageshow',keepScreenAwake);
 keepScreenAwake();
 
 function render() {
+  const r = state?.round;
+  const waiting = r?.mode===4 && r.phase==='placement' && r.final;
+  const enteringWait = waiting && $('submission-wait').hidden;
+  document.querySelector('.app').inert = Boolean(waiting);
+  $('submission-wait').hidden = !waiting;
+  $('wait-end').hidden = !waiting || state.host!==state.me;
+  if (enteringWait) $('wait-title').focus({preventScroll:true});
   $('entrance').hidden = Boolean(state);
   $('release-history').hidden = Boolean(state);
   for (const id of ['nav','players','intro','board','deck']) $(id).hidden = !state;
@@ -86,21 +100,48 @@ function render() {
     panel.render();
     return;
   }
-  const s = state, r = s.round;
-  const key = JSON.stringify(s);
+  const s = state;
+  const consensusResult = r?.mode===4 && r.phase==='result';
+  if (consensusResult && resultRound!==r.id) {
+    resultRound = r.id;
+    resultPlayer = r.players.find(p=>p.id===s.me)?.id ?? r.players[0].id;
+  }
+  const key = JSON.stringify([s,consensusResult ? resultPlayer : null]);
   if (lastScreen !== key) {
     lastScreen = key;
-    avatars(s);
-    board(s,card=>{
+    if (waiting) avatars(s,$('wait-players'));
+    if (consensusResult) {
+      consensusPlayers($('players'),r.players,s.me,resultPlayer,id=>{
+        resultPlayer=id;
+        panel.close();
+        render();
+        $('players').querySelector('[aria-pressed=true]')?.focus({preventScroll:true});
+      });
+    } else avatars(s);
+    board(consensusResult ? {...s,round:{...r,cards:consensusBoard(r,resultPlayer)}} : s,card=>{
       const live = state.round;
       if (live?.mode===2 && live.canPlace && live.cards.some(c=>c.id===card.id&&c.placed)) {
         sync.send('select',{card:card.id},live);
-      } else panel.open('preview',{card});
+      } else if (live?.mode===4 && live.canPlace) panel.open('move',{card});
+      else panel.open('preview',{card});
     });
     $('board-title').textContent = r?.topic || (r?.mode===3 && r.phase!=='topic' ? 'お題は？' : MODES[s.settings.mode]);
     $('board-title').title = r?.topic ?? '';
-    if (r) showProgress(progress(r),r.total,$('progress'),$('progress-bar'));
-    else {
+    $('progress-bar').parentElement.hidden = Boolean(consensusResult);
+    if (consensusResult) $('progress').textContent = consensusCount(r);
+    else if (r?.mode===4) {
+      const input = r.phase==='input';
+      const rest = input ? r.inputRemaining : r.remaining;
+      const total = input ? r.cardsPerPlayer : r.total;
+      $('progress').textContent = rest==null ? '' : `残り ${rest} / ${total} 枚`;
+      $('progress-bar').style.width = rest==null ? '0%' : (1-rest/total)*100+'%';
+    } else if (r) {
+      const count = progress(r);
+      showProgress(count,r.total,$('progress'),$('progress-bar'));
+      if (r.mode===2 && r.phase==='placement') {
+        $('progress').textContent = '残り '+remainingCards(r.total,count)+' / '+r.total+' 枚';
+      }
+    } else {
       $('progress').textContent = `${s.players.filter(p=>p.online).length} / 10 人`;
       $('progress-bar').style.width = '0%';
     }
@@ -148,8 +189,15 @@ function deck(s) {
     line(short(r.setter)+'さんがお題を選んでいます。');
   } else if (r.phase==='input') {
     label('単語を準備中');
-    line(r.mode===1?short(r.turn)+'さんが入力中です。':'子が秘密Tierに沿って単語を入力しています。');
+    line(r.mode===1 ? short(r.turn)+'さんが入力中です。' : r.mode===4
+      ? '全員のカードがそろうまでお待ちください。' : '子が秘密Tierに沿って単語を入力しています。');
+    if (r.mode===4 && r.ownCards?.length) add('自分の投稿を確認・修正',()=>panel.open('ownCards'));
   } else if (r.phase==='placement' || r.phase==='vote') {
+    if (r.mode===4 && !r.canPlace) {
+      label('Tier表を作成中');
+      line('参加者がそれぞれのTier表を作っています。');
+      return;
+    }
     label(r.phase==='vote'?'仮配置を投票中':r.mode===2?'親がカードを配置':'このカードは、どのTier？');
     if (r.current) {
       const hero = button(r.current.word,()=>panel.open('preview',{card:r.current}),'hero-card');
@@ -162,6 +210,7 @@ function deck(s) {
       for (const tier of s.tiers) {
         const b = button(tier,()=>{
           if (r.mode===1) panel.open('confirm',{tier});
+          else if (r.mode===4) panel.open('confirmPlace',{tier,card:r.current});
           else send('place',{tier,card:r.current.id});
         },'choice');
         b.style.setProperty('--tier',COLORS[tier]);
@@ -170,7 +219,11 @@ function deck(s) {
         choices.append(b);
       }
     }
-    if (r.canSubmit) add('回答を提出',()=>panel.open('submit'),'primary');
+    if (r.canSubmit) add(r.mode===4?'最終確定':'回答を提出',()=>{
+      const issue = placementProblem(s.tiers,r.cards.filter(card=>card.placed).map(card=>card.placed),r.total);
+      if (issue) notice(issue);
+      else panel.open('submit');
+    },'primary');
   } else if (r.phase==='turnResult') {
     const f=r.feedback;
     label(f.correct?'正解！':'不正解');
@@ -185,8 +238,8 @@ function deck(s) {
     line(short(r.parent)+'さんがTier表からお題を当てます。');
     if (r.canJudge) add('正誤を判定',()=>panel.open('judge'),'primary');
   } else if (r.phase==='result') {
-    label(r.result.win?'クリア！':'ラウンド終了 · 失敗');
-    line(resultSummary({...r,correctCount:r.feedback?.score,
+    label(r.mode===4 ? consensusOutcome(r.result) : r.result.win?'クリア！':'ラウンド終了 · 失敗');
+    if (r.mode!==4) line(resultSummary({...r,correctCount:r.feedback?.score,
       target:s.settings.mode2Rule==='accuracy' ? s.settings.mode2Target : null}));
     if (r.mode===1 && r.history.length) add('誤答の詳細',()=>panel.open('history'));
     if (host && s.startProblem) line(s.startProblem);

@@ -54,7 +54,7 @@ function harness() {
     const history = id=>req(id ? 'history/'+id : 'history',null,token);
     const send = async (type,fields={},base) => {
       const r = base === undefined ? (await get()).state?.round : base;
-      return req('action',{id:crypto.randomUUID(),round:r?.id??null,version:r?.version??0,type,...fields},token);
+      return req('action',{id:crypto.randomUUID(),round:r?.id??null,version:r?.version??0,type,...(r?.draftRevision != null ? {draftRevision:r.draftRevision} : {}),...fields},token);
     };
     return {name,token,get,history,send,state:async()=>(await get()).state};
   }
@@ -142,9 +142,12 @@ test('mode 2 perfect and accuracy through independent HTTP sessions',async()=>{
     assert.equal((await parent.get()).status,401);
     assert.equal((await replaced.state()).round.current.id,first);
     assert.equal(h.raw().round.queue.at(-1),deferred);
+    const cards = h.raw().round.cards;
+    const repeated = cards.find(card=>cards.filter(other=>other.answer===card.answer).length>1);
     for (const id of [...h.raw().round.queue]) {
-      const answer=h.raw().round.cards.find(c=>c.id===id).answer;
-      await replaced.send('place',{card:id,tier:mode2Rule==='perfect'?'A':answer});
+      const answer=cards.find(c=>c.id===id).answer;
+      const tier=mode2Rule==='perfect' && id===repeated.id ? ['A','B','C'].find(t=>t!==answer) : answer;
+      await replaced.send('place',{card:id,tier});
     }
     assert.equal((await replaced.send('submit')).status,200);
     const activeHost=parent===host?replaced:host;
@@ -419,17 +422,17 @@ test('mode 2 appends a repositioned card to the end of the target tier in play a
   for (let i=0;i<4;i++) {
     const {current} = (await parent.state()).round;
     order.push(current.id);
-    await parent.send('place',{card:current.id,tier:'A'});
+    await parent.send('place',{card:current.id,tier:['A','A','B','C'][i]});
   }
   assert.deepEqual((await host.state()).round.cards.map(c=>c.id),order);
-  const [first,...rest] = order;
+  const [first,second,...rest] = order;
   await parent.send('select',{card:first});
   await parent.send('place',{card:first,tier:'A'});
   await parent.send('submit');
   const final = (await host.state()).round;
-  assert.deepEqual(final.cards.map(c=>c.id),[...rest,first]);
+  assert.deepEqual(final.cards.map(c=>c.id),[second,first,...rest]);
   const saved = (await host.history(final.id)).record;
-  assert.deepEqual(saved.cards.map(c=>c.id),[...rest,first]);
+  assert.deepEqual(saved.cards.map(c=>c.id),[second,first,...rest]);
   assert.ok(saved.players.every(p=>!Object.hasOwn(p,'score')));
   assert.deepEqual([final.lives,final.initialLives],[0,1]);
   assert.deepEqual([saved.result.lives,saved.result.initialLives],[0,1]);
@@ -444,17 +447,20 @@ test('mode 2 perfect history saves the last submission even when a previous answ
       await child.send('word',{card:input.id,word:child.name+i});
     }
   }
-  const wrongTier = card=>['A','B','C'].find(tier=>tier!==card.answer);
   const cards = h.raw().round.cards;
-  for (const id of h.raw().round.queue) {
-    const card = cards.find(c=>c.id===id);
-    await parent.send('place',{card:id,tier:card===cards[0]?wrongTier(card):card.answer});
-  }
+  const tiers = ['A','B','C'];
+  const boards = tiers.flatMap(a=>tiers.flatMap(b=>tiers.flatMap(c=>tiers.map(d=>[a,b,c,d]))))
+    .filter(board=>new Set(board).size===tiers.length);
   for (let attempt=1;attempt<=3;attempt++) {
-    if (attempt>1) {
-      const card = cards[attempt-1];
-      await parent.send('select',{card:card.id});
-      await parent.send('place',{card:card.id,tier:wrongTier(card)});
+    const target = boards.find(board=>cards.filter((card,i)=>card.answer===board[i]).length===4-attempt);
+    const byId = new Map(cards.map((card,i)=>[card.id,target[i]]));
+    if (attempt===1) {
+      for (const id of h.raw().round.queue) await parent.send('place',{card:id,tier:byId.get(id)});
+    } else {
+      for (const card of cards) {
+        await parent.send('select',{card:card.id});
+        await parent.send('place',{card:card.id,tier:byId.get(card.id)});
+      }
     }
     assert.equal((await parent.send('submit')).status,200);
     const result = (await host.state()).round;
@@ -509,4 +515,187 @@ test('parent author visibility is independent for the two guessing modes and def
       assert.ok(result.cards.every(card=>children.some(child=>child.name===card.owner)));
     }
   }
+});
+
+test('concurrent normalized names are unique within a round and reusable in a later match',async()=>{
+  for (const mode of [2,3,4]) {
+    const {h,host,setter,players,parent} = await round(mode);
+    await setter.send('topic',{word:'重複テスト'});
+    const [first,second] = Object.values(players).filter(p=>p!==parent);
+    const [a,b] = await Promise.all([first.state(),second.state()]);
+    const responses = await Promise.all([
+      first.send('word',{card:a.round.input.id,word:'  ＡＢＣ  '},a.round),
+      second.send('word',{card:b.round.input.id,word:'ABC'},b.round),
+    ]);
+    assert.equal(responses.filter(response=>response.status===200).length,1);
+    assert.equal(responses.find(response=>response.status!==200).code,'duplicateCard');
+    const winner = responses[0].status===200 ? first : second;
+    const loser = winner===first ? second : first;
+    const {input} = (await winner.state()).round;
+    assert.equal((await winner.send('word',{card:input.id,word:'ABC'})).code,'duplicateCard');
+    if (mode===4) {
+      const [saved] = (await winner.state()).round.ownCards;
+      assert.equal((await loser.send('editWord',{card:saved.id,word:'改名'})).status,409);
+      assert.equal((await winner.send('editWord',{card:saved.id,word:'改名'})).status,200);
+      const {input} = (await loser.state()).round;
+      assert.equal((await loser.send('word',{card:input.id,word:'ABC'})).status,200);
+    }
+    await host.send('end');
+    await host.send('start');
+    const next = (await host.state()).round;
+    await players[next.setter].send('topic',{word:'別対戦'});
+    const writer = Object.values(players).find(p=>p.name!==next.parent);
+    const current = (await writer.state()).round.input;
+    assert.equal((await writer.send('word',{card:current.id,word:'ABC'})).status,200);
+    assert.equal(h.raw().round.cards.filter(card=>card.word).length,1);
+  }
+});
+
+test('tier guessing rejects empty tiers and keeps all placements for correction',async()=>{
+  const {parent,players,setter} = await round(2);
+  await setter.send('topic',{word:'空のTier'});
+  for (const player of Object.values(players).filter(p=>p!==parent)) {
+    for (let i=0;i<2;i++) {
+      const {input} = (await player.state()).round;
+      await player.send('word',{card:input.id,word:player.name+i});
+    }
+  }
+  for (let i=0;i<4;i++) {
+    const {current} = (await parent.state()).round;
+    await parent.send('place',{card:current.id,tier:'A'});
+  }
+  const before = (await parent.state()).round;
+  const refused = await parent.send('submit');
+  assert.equal(refused.code,'incompleteBoard');
+  assert.match(refused.error,/未使用：B、C/);
+  assert.deepEqual((await parent.state()).round.cards,before.cards);
+  for (const [i,tier] of ['B','C'].entries()) {
+    const card = before.cards[i].id;
+    await parent.send('select',{card});
+    await parent.send('place',{card,tier});
+  }
+  assert.equal((await parent.send('submit')).status,200);
+});
+
+test('consensus isolates HTTP views, compares finalized boards, and saves one complete history',async()=>{
+  for (const withMismatch of [false,true]) {
+    const {h,host,b,c,setter,topic,players} = await round(4,{mode4ShowAuthors:withMismatch});
+    const entrants = Object.values(players);
+    assert.equal((await h.join(b.name)).code,'nameInUse');
+    assert.equal((await h.req('join',{name:b.name},b.token)).token,b.token);
+    const watcher = await h.join('watcher');
+    assert.equal((await setter.send('topic',{word:topic})).status,200);
+    const initial = (await host.state()).round;
+    for (const i of [0,1]) {
+      const results = await Promise.all(entrants.map(async player=>{
+        const r = (await player.state()).round;
+        assert.equal(r.inputRemaining,2-i);
+        assert.ok(r.input.tier);
+        return player.send('word',{card:r.input.id,word:player.name+i},r);
+      }));
+      assert.ok(results.every(response=>response.status===200));
+      if (i===0) {
+        for (const player of entrants) {
+          const view = await player.state();
+          assert.deepEqual(view.round.ownCards.map(card=>card.word),[player.name+i]);
+          assert.deepEqual(view.round.cards,[]);
+          assert.ok(view.players.filter(p=>!p.spectator).every(p=>p.mark===1));
+        }
+        assert.deepEqual((await watcher.state()).round.cards,[]);
+        assert.equal((await watcher.state()).round.ownCards,undefined);
+      }
+    }
+    const opening = await Promise.all(entrants.map(player=>player.state()));
+    const order = opening[0].round.displayOrder;
+    assert.equal(order.length,6);
+    assert.equal(opening[0].round.version,initial.version+1);
+    for (const {round:r} of opening) {
+      assert.equal(r.phase,'placement');
+      assert.deepEqual(r.displayOrder,order);
+      assert.deepEqual(r.unplaced.map(card=>card.id),order);
+      assert.equal(r.current.id,order[0]);
+      assert.ok(r.unplaced.every(card=>!Object.hasOwn(card,'answer') && Object.hasOwn(card,'owner')===withMismatch));
+    }
+    assert.deepEqual((await watcher.state()).round.cards,[]);
+    assert.equal((await host.send('submit')).code,'incompleteBoard');
+    for (const [i,card] of order.entries()) {
+      const results = await Promise.all(entrants.map((player,index)=>
+        player.send('place',{card,tier:index===0?'A':['B','C','A'][i%3]})));
+      assert.ok(results.every(response=>response.status===200));
+      const second = await b.state();
+      assert.equal(second.round.remaining,order.length-i-1);
+      assert.ok(second.round.cards.every((card,j)=>card.placed===['B','C','A'][j%3]));
+      assert.equal(second.players.find(player=>player.id===host.name).mark<=order.length-i-1,true);
+      if (i<order.length-1) assert.equal(second.round.current.id,order[i+1]);
+    }
+    const failed = await host.send('submit');
+    assert.equal(failed.code,'incompleteBoard');
+    assert.match(failed.error,/未使用：B、C/);
+    for (const [i,id] of order.entries()) {
+      if (i%3!==2) assert.equal((await host.send('place',{card:id,tier:['B','C'][i%3]})).status,200);
+    }
+    if (withMismatch) assert.equal((await host.send('place',{card:order[0],tier:'C'})).status,200);
+    const draft = (await host.state()).round;
+    assert.deepEqual(draft.displayOrder,order);
+    assert.equal(draft.cards.length,6);
+    assert.equal((await b.state()).players.find(p=>p.id===host.name).mark,0);
+    const payload = {type:'submit',id:crypto.randomUUID(),round:draft.id,version:draft.version,draftRevision:draft.draftRevision};
+    assert.equal((await h.req('action',payload,host.token)).status,200);
+    assert.equal((await h.req('action',payload,host.token)).status,200);
+    h.advance(16_000);
+    const wait = (await host.state()).round;
+    assert.equal(wait.final,true);
+    assert.deepEqual(wait.cards,[]);
+    assert.equal(wait.displayOrder,undefined);
+    assert.equal(wait.result,undefined);
+    assert.equal((await host.send('place',{card:order[0],tier:'A'})).status,409);
+    assert.equal((await b.state()).players.find(p=>p.id===host.name).mark,'done');
+    assert.deepEqual((await host.history()).record,[]);
+    const finished = await Promise.all([b.send('submit'),c.send('submit')]);
+    assert.ok(finished.every(response=>response.status===200));
+    const result = (await host.state()).round;
+    assert.equal(result.phase,'result');
+    assert.equal(result.result.win,!withMismatch);
+    assert.equal(result.result.matched,withMismatch?5:6);
+    assert.deepEqual(result.result.mismatched,withMismatch?[order[0]]:[]);
+    assert.ok(result.cards.every(card=>card.owner && card.answer));
+    const history = await host.history();
+    assert.equal(history.record.length,1);
+    assert.equal((await host.history(result.id)).record.modeName,'全員一致モード');
+    const saved = (await host.history(result.id)).record;
+    assert.deepEqual(saved.result,result.result);
+    assert.deepEqual(saved.cards,result.cards);
+    assert.deepEqual(saved.players,result.players);
+    assert.equal(saved.settings.mode4ShowAuthors,withMismatch);
+    await host.send('lobby');
+    assert.deepEqual((await host.history(result.id)).record,saved);
+  }
+});
+
+test('a ten-person consensus match persists all 100 cards, ten boards and seven tiers',async()=>{
+  const h=harness();
+  const players=[];
+  for (let i=0;i<10;i++) players.push(await h.join('player'+i));
+  const [host] = players;
+  await host.send('settings',{settings:{mode:4,cardsPerPlayer:10,difficulty:'hard',nominatedMode1Setter:host.name}});
+  await host.send('start');
+  await host.send('topic',{word:'最大人数と枚数'});
+  for (const player of players) {
+    for (let i=0;i<10;i++) {
+      const {input} = (await player.state()).round;
+      assert.equal((await player.send('word',{card:input.id,word:player.name+'-'+i})).status,200);
+    }
+  }
+  for (const player of players) {
+    for (let i=0;i<100;i++) {
+      const {round,tiers} = await player.state();
+      assert.equal((await player.send('place',{card:round.current.id,tier:tiers[i%7]},round)).status,200);
+    }
+    assert.equal((await player.send('submit')).status,200);
+  }
+  const {round} = await host.state();
+  const {record} = await host.history(round.id);
+  assert.equal(record.cards.length,100);
+  assert.equal(record.result.matched,100);
+  assert.deepEqual(record.result.boards.map(board=>Object.keys(board).length),Array(10).fill(100));
 });

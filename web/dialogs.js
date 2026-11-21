@@ -1,5 +1,6 @@
-import {DEFAULTS,MODES} from './config.js';
+import {COLORS,DEFAULTS,MODES,hasParent} from './config.js';
 import {$,button,cardDescription,el,fit,short} from './board.js';
+import {consensusDetail} from './consensus.js';
 import {historyDetail,historyList} from './history.js';
 import {releaseHistory} from './releases.js';
 
@@ -57,6 +58,7 @@ export function dialogs(getState,send,loadHistory) {
     clearTimeout(historyTimer);
     view.selected = null;
     view.record = view.card = null;
+    view.resultPlayer = null;
     view.error = '';
     view.list = null;
     render(true);
@@ -108,7 +110,7 @@ export function dialogs(getState,send,loadHistory) {
   function open(kind, data = {}) {
     clearTimeout(historyTimer);
     const s = getState(), r = s?.round;
-    panel = {kind,data,round:r?.id,version:r?.version};
+    panel = {kind,data,round:r?.id,version:r?.version,draftRevision:r?.draftRevision};
     tab = 0;
     problem = '';
     if (kind === 'roundHistory') {
@@ -133,7 +135,10 @@ export function dialogs(getState,send,loadHistory) {
   }
   function render(force = false) {
     const s = getState(), r = s?.round;
+    if (r?.mode===4 && r.final && panel?.kind!=='end') panel = null;
     const releasesOpen = panel?.kind === 'releaseHistory';
+    if (panel && ['move','confirmPlace','submit'].includes(panel.kind) &&
+        panel.draftRevision !== r?.draftRevision) panel = null;
     if (!releasesOpen && (!s || (panel && !stablePanels.includes(panel.kind) &&
         (panel.round!==r?.id || panel.version!==r?.version)))) panel = null;
     if (panel?.kind === 'roundHistory' && panel.historyVersion !== s.historyVersion) {
@@ -142,7 +147,7 @@ export function dialogs(getState,send,loadHistory) {
     }
     const active = panel ?? automatic(s);
     const kind = active?.kind;
-    const canPeek = kind==='input' && (s.settings.peekBoardWhileTyping ?? DEFAULTS.peekBoardWhileTyping);
+    const canPeek = kind==='input' && r.mode!==4 && (s.settings.peekBoardWhileTyping ?? DEFAULTS.peekBoardWhileTyping);
     if (!canPeek || peekButton.dataset.card !== r?.input?.id) stopPeeking();
     peekButton.dataset.card = canPeek ? r.input.id : '';
     peekButton.hidden = !canPeek;
@@ -150,11 +155,12 @@ export function dialogs(getState,send,loadHistory) {
     const historyOpen = kind === 'roundHistory';
     const key = releasesOpen ? kind : JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
       stablePanels.includes(kind) ? null : r?.version,historyOpen ? null : r?.input?.id,
+      ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.online]):null]:null,
       kind==='menu'?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null]);
     if (!force && key===lastKey) return;
     const oldInput = dialog.querySelector('input[type=text]');
-    const preserve = oldInput && oldInput.dataset.key === String(r?.input?.id ?? r?.id);
+    const preserve = oldInput && oldInput.dataset.key === String(active?.data?.card?.id ?? r?.input?.id ?? r?.id);
     const draft = preserve ? oldInput.value : '';
     const focused = preserve && oldInput===document.activeElement;
     if (preserve) drafts.set(oldInput.dataset.key,draft);
@@ -169,14 +175,18 @@ export function dialogs(getState,send,loadHistory) {
     problem = '';
     const titles = {releaseHistory:'アップデート履歴',settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
       input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirm:'配置を確認',
-      preview:'カード詳細',history:'誤答の詳細',roundHistory:active.record?'履歴の結果':'履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
-      submit:'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作'};
+      preview:'カード詳細',move:'カード詳細',ownCards:'自分の投稿',editWord:'投稿を修正',confirmPlace:'配置を確認',history:'誤答の詳細',roundHistory:active.record?(active.card && active.record.mode===4?'カード詳細':'履歴の結果'):'履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
+      submit:r?.mode===4?'最終確定':'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作'};
     const head = el('div','modal-head');
     const title = el('h2','',titles[kind]);
     title.id = 'dialog-title';
     head.append(title);
     if (historyOpen && active.selected) {
-      head.append(button('一覧に戻る',()=>backToHistory(active)));
+      if (active.card && active.record?.mode===4) head.append(button('Tier表に戻る',()=>{
+        active.card = null;
+        render(true);
+      }));
+      else head.append(button('一覧に戻る',()=>backToHistory(active)));
     }
     if (panel) {
       const x = button('×',close,'icon-button');
@@ -198,16 +208,25 @@ export function dialogs(getState,send,loadHistory) {
     };
     const actions = (...buttons) => body.append(actionRow(...buttons));
     const text = (value,cls = 'dialog-copy') => body.append(el('p',cls,value));
+    const ownCards = () => {
+      if (!r.ownCards?.length) return;
+      const list = el('div','own-cards consensus-scroll');
+      for (const card of r.ownCards) list.append(button(card.answer+'  '+card.word,()=>open('editWord',{card})));
+      body.append(list);
+    };
     if (releasesOpen) {
       releaseHistory(body);
       head.querySelector('button').focus({preventScroll:true});
-    } else if (kind==='input' || kind==='topic') {
-      const isTopic = kind==='topic';
+    } else if (kind==='ownCards') {
+      ownCards();
+    } else if (kind==='input' || kind==='topic' || kind==='editWord') {
+      const isTopic = kind==='topic', editing = kind==='editWord';
+      const edited = active.data?.card;
       const input = el('input');
       input.type = 'text';
       input.maxLength = 120;
-      input.dataset.key = String(r.input?.id ?? r.id);
-      input.value = drafts.get(input.dataset.key) ?? '';
+      input.dataset.key = String(edited?.id ?? r.input?.id ?? r.id);
+      input.value = drafts.get(input.dataset.key) ?? edited?.word ?? '';
       input.autocomplete = 'off';
       input.setAttribute('aria-label',isTopic?'自分で入力':'単語');
       if (isTopic) {
@@ -218,10 +237,10 @@ export function dialogs(getState,send,loadHistory) {
         body.append(random);
       } else {
         text(r.topic);
-        text('あなたの秘密Tier  '+r.input.tier,'secret-tier');
+        text((r.mode===4?'指定Tier  ':'あなたの秘密Tier  ')+(edited?.answer ?? r.input.tier),'secret-tier');
       }
       const form = el('form','input-form'+(isTopic?' topic-custom':''));
-      const submit = el('button','primary',isTopic?'入力したお題で確定':'提出');
+      const submit = el('button','primary',isTopic?'入力したお題で確定':editing?'修正する':'提出');
       const validate = () => {submit.disabled = !input.value.trim() || [...input.value.trim()].length>60;};
       validate();
       input.oninput = () => {
@@ -233,12 +252,17 @@ export function dialogs(getState,send,loadHistory) {
         event.preventDefault();
         if (submit.disabled || overlay.classList.contains('peeking')) return;
         const word = input.value;
-        const ok = await (isTopic ? act('topic',{source:'custom',word}) : act('word',{card:r.input.id,word}));
-        if (ok) drafts.delete(input.dataset.key);
+        const ok = await (isTopic ? act('topic',{source:'custom',word}) :
+          act(editing?'editWord':'word',{card:edited?.id ?? r.input.id,word}));
+        if (ok) {
+          drafts.delete(input.dataset.key);
+          if (editing) close();
+        }
       };
       if (isTopic) form.append(el('h3','topic-label','自分で入力'));
       form.append(input,submit);
       body.append(form);
+      if (kind==='input' && r.mode===4) ownCards();
       if (focused) input.focus({preventScroll:true});
     } else if (kind==='vote') {
       text('「'+r.current.word+'」 → '+r.proposal.tier,'dialog-word');
@@ -248,22 +272,49 @@ export function dialogs(getState,send,loadHistory) {
     } else if (kind==='confirm') {
       text('「'+r.current.word+'」を '+active.data.tier+' で提出しますか？','dialog-word');
       actions(button('キャンセル',close),button('確定',()=>done('propose',{card:r.current.id,tier:active.data.tier}),'primary'));
-    } else if (kind==='preview') {
+    } else if (kind==='confirmPlace') {
+      const {card,tier} = active.data;
+      text('「'+card.word+'」を '+tier+' に配置しますか？','dialog-word');
+      actions(button('キャンセル',close),button('確定',()=>done('place',{card:card.id,tier}),'primary'));
+    } else if (kind==='preview' || kind==='move') {
       const c = active.data.card;
-      text(c.word,'dialog-word');
-      text(cardDescription(c));
+      if (r?.mode===4 && r.phase==='result') {
+        const detail = el('div','dialog-body consensus-scroll');
+        consensusDetail(detail,r,c);
+        body.append(detail);
+      } else {
+        text(c.word,'dialog-word');
+        const description = cardDescription(c);
+        if (description) text(description);
+      }
+      if (kind==='move') {
+        const choices = el('div','placement-dialog-choices');
+        choices.style.setProperty('--tier-count',s.tiers.length);
+        for (const tier of s.tiers) {
+          const choice = button(tier,()=>open('confirmPlace',{card:c,tier}),'choice');
+          choice.style.setProperty('--tier',COLORS[tier]);
+          choice.setAttribute('aria-label',tier+'に移動');
+          choice.disabled = tier===c.placed;
+          choices.append(choice);
+        }
+        body.append(choices);
+      }
       actions(button('閉じる',close,'primary'));
     } else if (kind==='roundHistory') {
       if (active.error) {
         text(active.error,'error');
         actions(button('再読み込み',()=>refreshHistory(active)));
+      } else if (active.selected && active.record?.mode===4 && active.card) {
+        const detail = el('div','dialog-body consensus-scroll');
+        consensusDetail(detail,active.record,active.card);
+        body.append(detail);
       } else if (active.selected && active.record) {
         historyDetail(body,active.record,s.me,active.card,card=>{
           active.card = active.card?.id === card.id ? null : card;
           render(true);
           dialog.querySelector('.history-card')?.scrollIntoView({block:'nearest'});
           dialog.querySelector('.tile[aria-pressed=true]')?.focus({preventScroll:true});
-        });
+        },active.resultPlayer,player=>{active.resultPlayer=player;render(true);});
         historyBoard.observe(body.querySelector('.history-board'));
       } else if (!active.selected && active.list?.length) {
         historyList(body,active.list,(id,scrollTop)=>{
@@ -294,9 +345,13 @@ export function dialogs(getState,send,loadHistory) {
       text((tab+1)+' / '+r.history.length);
       actions(prev,next);
     } else if (kind==='end' || kind==='leave' || kind==='submit') {
-      text({end:'このラウンドを終了し、全員を待機画面に戻します。',leave:'ルームから退出しますか？',
-        submit:'現在のTier表で回答を提出しますか？'}[kind]);
-      actions(button('キャンセル',close),button({end:'途中終了',leave:'退出',submit:'回答を提出'}[kind],()=>done(kind),'primary'));
+      const consensus = r?.mode===4;
+      const leavingEarly = consensus && r.phase!=='result' && !r.final &&
+        !s.players.find(p=>p.id===s.me)?.spectator;
+      text({end:'このラウンドを終了し、全員を待機画面に戻します。',
+        leave:leavingEarly?'退出するとこの対戦は途中終了します。退出しますか？':'ルームから退出しますか？',
+        submit:consensus?'このTier表で確定しますか？ 確定後は変更できません。':'現在のTier表で回答を提出しますか？'}[kind]);
+      actions(button('キャンセル',close),button({end:'途中終了',leave:'退出',submit:consensus?'確定':'回答を提出'}[kind],()=>done(kind),'primary'));
     } else if (kind==='judge') {
       text(r.topic,'dialog-word');
       text('親の口頭回答を聞いてから判定してください。');
@@ -308,8 +363,9 @@ export function dialogs(getState,send,loadHistory) {
       const pages = [
         ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。'],
         [MODES[1],'手番の人が秘密Tierに沿って単語を出し、他の人が配置を提案します。Goodが過半数で可決され、配置が合っているか判定します。間違えるとライフが減ります。得点ONの場合、可決されて正解すると、記入者にGoodの数だけ、Goodを押した人にそれぞれ1点が入ります。否決・不正解で点は変わりません。得点はラウンド終了時に表示されます。'],
-        [MODES[2],'子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。完璧モードは全問正解を目指し、不正解の提出ごとにライフが1つ減ります。正答率モードは1回の提出で、設定した正答率を目指します。'],
+        [MODES[2],'子がカードを提出し、親がTierを当てます。置いたカードをタップすると再配置できます。提出するにはすべてのTierに1枚以上必要です。完璧モードは全問正解を目指し、不正解の提出ごとにライフが1つ減ります。正答率モードは1回の提出で、設定した正答率を目指します。'],
         [MODES[3],'子が提出するたびに正解Tierへカードが加わります。親は完成した表を見て口頭で回答し、お題の担当者が判定します。'],
+        [MODES[4],'全員が指定Tierに沿ってカードを投稿し、同じカードを使って各自でTier表を作ります。すべてのTierに1枚以上置いて確定します。全員がすべてのカードを同じTierに置くとクリアです。投稿時の指定Tierや同じTier内の並び順は判定に使いません。'],
       ];
       const tabs = el('div','action-row rule-tabs');
       tabs.append(...pages.map(([name],i)=>button(name,()=>{tab=i;render(true);},i===tab?'selected control':'control')));
@@ -342,7 +398,7 @@ export function dialogs(getState,send,loadHistory) {
       const focusable = [...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')];
       if (panel?.kind !== 'releaseHistory') {
         if (!peekButton.hidden) focusable.push(peekButton);
-        if (!$('nav').hidden) focusable.push(...$('nav').querySelectorAll('button'));
+        if (!$('nav').hidden && !document.querySelector('.app').inert) focusable.push(...$('nav').querySelectorAll('button'));
       }
       const index = focusable.indexOf(document.activeElement);
       if (index===-1 || (e.shiftKey ? index===0 : index===focusable.length-1)) {
@@ -395,7 +451,10 @@ function settings(body,s,tab,onTab,change,resetHistory) {
       select('ライフ','mode1Lives',range(30));
       select('得点','mode1Scoring',[[false,'OFF'],[true,'ON']]);
       select('不正解時','mode1Wrong',[['reveal','正解を公開'],['retry','同じカードで再挑戦']]);
+    }
+    if (!hasParent(st.mode)) {
       select('次のお題担当','nominatedMode1Setter',[[null,'ランダム一巡'],...playerOptions('nominatedMode1Setter')]);
+      if (st.mode===4) select('カードの投稿者を表示する','mode4ShowAuthors',[[false,'OFF'],[true,'ON']]);
     } else {
       if (st.mode===2) {
         select('勝利条件','mode2Rule',[['perfect','完璧モード'],['accuracy','正答率モード']]);
@@ -409,7 +468,7 @@ function settings(body,s,tab,onTab,change,resetHistory) {
         [[null,nominated?'自動で決める':'親を指名すると選べます'],...playerOptions('nominatedSetter',st.nominatedParent)],
         nominated);
     }
-    select('入力中にTier表を確認','peekBoardWhileTyping',[[true,'ON'],[false,'OFF']]);
+    if (st.mode!==4) select('入力中にTier表を確認','peekBoardWhileTyping',[[true,'ON'],[false,'OFF']]);
   } else {
     select('Tier抽選','randomMode',[['random','完全ランダム'],['balanced','できるだけ均等'],['centerWeighted','真ん中多め']]);
     body.append(el('p','dialog-copy','どの方法でも、すべてのランクに必ず1枚以上入ります。'));

@@ -3,11 +3,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="theme-color" content="#f5f4ee">
 <title>みんなでtier表</title>
-<meta name="description" content="友だちと単語を出して、Tierやお題を予想するゲーム。">
+<meta name="description" content="友だちと単語を出して、Tierやお題を予想したり、全員一致に挑戦したりするゲーム。">
 <link rel="stylesheet" href="./style.css"></head>
 <body><main class="app">
   <header>
-    <div class="brand">みんなでtier表 <button id="brand-version" class="brand-version" type="button" aria-label="ver1.1.2のアップデート履歴を開く" aria-haspopup="dialog">ver1.1.2</button></div>
+    <div class="brand">みんなでtier表 <button id="brand-version" class="brand-version" type="button" aria-label="ver1.2.0のアップデート履歴を開く" aria-haspopup="dialog">ver1.2.0</button></div>
     <button id="release-history" class="control" type="button" aria-haspopup="dialog">アップデート履歴</button>
     <nav id="nav" aria-label="ゲームのメニュー" hidden>
       <button id="roundHistory">履歴</button><button id="rules">ルール</button><button id="settings">設定</button><button id="menu">メニュー</button>
@@ -35,6 +35,14 @@
   </section>
   <p id="notice" class="notice" role="status" hidden></p>
 </main>
+<section id="submission-wait" class="submission-wait" aria-labelledby="wait-title" hidden>
+  <div class="wait-content">
+    <h2 id="wait-title" tabindex="-1">提出完了</h2>
+    <p>ほかのプレイヤーを待っています</p>
+    <section id="wait-players" class="players" aria-label="提出状況"></section>
+    <button id="wait-end" class="control" type="button" hidden>途中終了</button>
+  </div>
+</section>
 <section id="overlay" class="overlay" hidden>
   <div id="dialog" class="dialog" role="dialog" aria-labelledby="dialog-title"></div>
   <button id="peek-board" class="control peek-board" type="button" hidden>tier表を確認する</button>

@@ -50,7 +50,7 @@ export function connect(onState,onError,onClose) {
   if (token) queueMicrotask(()=>poll());
   return {
     async join(name) {
-      const data = await request('join',{name},null);
+      const data = await request('join',{name});
       clearTimeout(timer);
       generation++;
       revision = at = -1;
@@ -73,7 +73,7 @@ export function connect(onState,onError,onClose) {
       if (!token || pending) return false;
       const g = generation;
       pending = true;
-      const payload = {id:makeId(),type,round:base?.id??null,version:base?.version??0,...fields};
+      const payload = {id:makeId(),type,round:base?.id??null,version:base?.version??0,...(base?.draftRevision != null ? {draftRevision:base.draftRevision} : {}),...fields};
       try {
         let data;
         try {data = await request('action',payload);}

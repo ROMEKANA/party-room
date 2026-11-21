@@ -1,4 +1,4 @@
-import {TIERS, startProblem, totalCards} from '../web/config.js';
+import {TIERS, hasParent, startProblem, totalCards} from '../web/config.js';
 import {draw, shuffle} from './draw.js';
 import {connected, requireGame} from './room.js';
 import {randomTopic} from './topics.js';
@@ -27,11 +27,11 @@ export function start(s, now) {
   const issue = startProblem(settings, ids.length);
   requireGame(!issue, issue);
   const {mode} = settings;
-  const pickedParent = mode !== 1 && ids.includes(settings.nominatedParent) ? settings.nominatedParent : null;
-  const parent = mode === 1 ? null : pickedParent ?? rotate(s,'parent',ids);
+  const pickedParent = hasParent(mode) && ids.includes(settings.nominatedParent) ? settings.nominatedParent : null;
+  const parent = hasParent(mode) ? pickedParent ?? rotate(s,'parent',ids) : null;
   const children = ids.filter(id => id !== parent);
   let setter;
-  if (mode === 1) {
+  if (!hasParent(mode)) {
     setter = ids.includes(settings.nominatedMode1Setter) ? settings.nominatedMode1Setter : rotate(s,'setter',ids);
     s.settings.nominatedMode1Setter = null;
   } else {
@@ -80,12 +80,19 @@ export function currentInput(r, id) {
   if (r.mode === 1) return r.cards[r.turn].owner === id ? r.cards[r.turn] : null;
   return r.cards.find(c => c.owner === id && !c.word) ?? null;
 }
-export function writeCard(r, id, action) {
-  const card = currentInput(r,id);
+export const cardNameKey = word => word.normalize('NFKC').trim();
+export function writeCard(r, id, action, edit = false) {
+  const card = edit && r.mode === 4 && r.phase === 'input'
+    ? r.cards.find(c => c.id === action.card && c.owner === id && c.word)
+    : currentInput(r,id);
   requireGame(card?.id && card.id === action.card, '現在の入力カードが変わりました。');
   const word = clean(action.word, 60);
   requireGame(word, '単語を1〜60文字で入力してください。', 400);
-  requireGame(!r.cards.some(c => c.word === word), '同じ単語が提出済みです。', 400);
+  const key = cardNameKey(word);
+  requireGame(key, '単語を1〜60文字で入力してください。', 400);
+  // The room revision CAS commits the name and the card together. A losing write rechecks against the winner.
+  requireGame(!r.cards.some(c => c !== card && c.word && cardNameKey(c.word) === key),
+    'このカード名はすでに登録されています。別の名前を入力してください。', 409, 'duplicateCard');
   card.word = word;
   if (r.mode === 2) card.submissionOrder = r.cards.filter(c => c.word).length;
   return card;
@@ -108,6 +115,7 @@ export function orderedCards(r, peek = false) {
 export function lifeStatus(r) {
   if (r.mode === 1) return {lives:r.lives,initialLives:r.settings.mode1Lives};
   if (r.mode === 3) return {lives:r.lives,initialLives:1};
+  if (r.mode === 4) return {};
   if (r.settings.mode2Rule === 'accuracy') {
     return {lives:r.result?.win === false ? 0 : 1,initialLives:1};
   }

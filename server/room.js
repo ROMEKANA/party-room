@@ -1,10 +1,10 @@
-import {DEFAULTS} from '../web/config.js';
+import {DEFAULTS,hasParent} from '../web/config.js';
 import {randomTopic} from './topics.js';
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
 export const HEARTBEAT_MS = 6_000;
 export const initialRoom = () => ({
-  settings:{...DEFAULTS}, players:[], host:null, round:null, joinOrder:0,
+  settings:{...DEFAULTS,hasParent}, players:[], host:null, round:null, joinOrder:0,
   rotation:{parent:null, setter:null}, previousParent:null,
 });
 export class GameError extends Error {
@@ -28,10 +28,15 @@ export function reconcile(s, now) {
   }
   if (!s.round && !s.players.length) Object.assign(s, initialRoom());
 }
-export function join(s, name, now) {
+export function join(s, name, now, token) {
   const id = typeof name === 'string' ? name.trim().normalize('NFC') : '';
   requireGame(id && [...id].length <= 20 && !/[\p{Cc}]/u.test(id), '名前を1〜20文字で入力してください。', 400);
   let p = s.players.find(person => person.id === id);
+  if (p && s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(id)) {
+    requireGame(p.token && token === p.token, '対戦中の名前です。参加したタブから再接続してください。', 409, 'nameInUse');
+    p.seen = Math.max(p.seen,now);
+    return p;
+  }
   if (!p) {
     requireGame(s.players.length < 10, '満員です。同じ名前での復帰は可能です。', 409, 'full');
     const used = new Set(s.players.map(person => person.color));
@@ -56,6 +61,8 @@ export function leave(s, p, now) {
   for (const key of ['nominatedMode1Setter','nominatedSetter']) {
     if (s.settings[key] === p.id) s.settings[key] = null;
   }
+  if (s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(p.id) &&
+      !s.round.drafts?.[s.round.ids.indexOf(p.id)]?.final) s.round = null;
   if (!s.round?.ids.includes(p.id)) s.players = s.players.filter(person => person !== p);
   if (s.players.every(person => person.left)) Object.assign(s, initialRoom());
 }
@@ -65,9 +72,9 @@ export function settingsFor(s, patch, now) {
   delete next.topicSource;
   const nominees = [null,...connected(s,now).map(p => p.id)];
   const choices = {
-    mode:[1,2,3], difficulty:['easy','normal','hard'], randomMode:['random','balanced','centerWeighted'],
+    mode:[1,2,3,4], difficulty:['easy','normal','hard'], randomMode:['random','balanced','centerWeighted'],
     peekBoardWhileTyping:[true,false], edgePrerequisites:[true,false], mode1Wrong:['reveal','retry'], mode1Scoring:[true,false], mode2Rule:['perfect','accuracy'],
-    mode2ShowAuthors:[true,false], mode3ShowAuthors:[true,false],
+    mode2ShowAuthors:[true,false], mode3ShowAuthors:[true,false], mode4ShowAuthors:[true,false],
     mode2Target:Array.from({length:10}, (_,i) => (i+1)*10),
     nominatedParent:nominees, nominatedMode1Setter:nominees, nominatedSetter:nominees,
   };
@@ -82,7 +89,7 @@ export function settingsFor(s, patch, now) {
       (Object.hasOwn(patch,'nominatedParent') && next.nominatedParent === next.nominatedSetter &&
         !Object.hasOwn(patch,'nominatedSetter'))) next.nominatedSetter = null;
   if (patch.nominatedSetter != null) {
-    requireGame(next.mode !== 1 && next.nominatedParent && next.nominatedParent !== patch.nominatedSetter,
+    requireGame(hasParent(next.mode) && next.nominatedParent && next.nominatedParent !== patch.nominatedSetter,
       '親を指名してから、親以外の人をお題担当に選んでください。');
   }
   return next;

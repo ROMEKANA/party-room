@@ -1,3 +1,4 @@
+import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
 import {MODES} from './config.js';
 import {avatars,button,cardDescription,drawRows,el,fit,progress,resultSummary,showLife,showProgress} from './board.js';
 
@@ -23,13 +24,16 @@ export function historyList(body,records,select,scrollTop) {
   body.append(list);
   list.scrollTop = scrollTop;
 }
-export function historyDetail(body,record,me,card,selectCard) {
+export function historyDetail(body,record,me,card,selectCard,selectedPlayer,selectPlayer) {
   const {result,players,cards,tiers} = record;
   const r = {...record,...result,phase:'result',
     scores:Object.fromEntries(players.filter(p=>p.score != null).map(p=>[p.id,p.score]))};
   const roster = el('section','players');
   roster.setAttribute('aria-label','ラウンドの参加者');
-  avatars({me,round:r,players:players.map(p=>({...p,online:true}))},roster);
+  const consensus = r.mode===4;
+  const player = selectedPlayer ?? players[0].id;
+  if (consensus) consensusPlayers(roster,players,me,player,selectPlayer);
+  else avatars({me,round:r,players:players.map(p=>({...p,online:true}))},roster);
   const intro = el('section','intro');
   const title = el('div','title-line');
   const life = el('span','pill');
@@ -40,14 +44,18 @@ export function historyDetail(body,record,me,card,selectCard) {
   subline.append(el('span','',metadata(record)),count);
   const track = el('div','progress-track'), bar = el('div','history-bar');
   track.append(bar);
-  showProgress(progress(r),r.total,count,bar);
-  intro.append(title,subline,track);
+  intro.append(title,subline);
+  if (consensus) count.textContent = consensusCount(r);
+  else {
+    showProgress(progress(r),r.total,count,bar);
+    intro.append(track);
+  }
   const board = el('section','board history-board');
   board.setAttribute('aria-label','ラウンドのTier表');
-  drawRows(board,tiers,cards,selectCard);
+  drawRows(board,tiers,consensus?consensusBoard(r,player):cards,selectCard);
   const resultBox = el('div','deck');
-  resultBox.append(el('strong','deck-top',r.win?'クリア！':'ラウンド終了 · 失敗'),
-    el('p','deck-message',resultSummary(r)));
+  resultBox.append(el('strong','deck-top',consensus?consensusOutcome(result):r.win?'クリア！':'ラウンド終了 · 失敗'));
+  if (!consensus) resultBox.append(el('p','deck-message',resultSummary(r)));
   body.append(roster,intro,board,resultBox);
   if (card) {
     [...board.querySelectorAll('.tile')].find(tile=>tile.title===card.word)?.setAttribute('aria-pressed','true');

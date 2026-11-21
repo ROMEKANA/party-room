@@ -1,4 +1,4 @@
-import {shuffle} from './draw.js';
+import {currentCardId,placeNext,requireFullBoard,startPlacement} from './placement.js';
 import {isOnline, requireGame} from './room.js';
 import {finish, phase, placeCard, writeCard} from './round.js';
 
@@ -15,7 +15,7 @@ export function mode23(s, r, id, a, host, now) {
       card.fixed = true;
     }
     if (r.cards.every(c => c.word)) {
-      if (r.mode === 2) r.queue = shuffle(r.cards.map(c => c.id));
+      if (r.mode === 2) startPlacement(r);
       phase(r, r.mode === 2 ? 'placement' : 'oral');
     }
     return;
@@ -36,8 +36,7 @@ export function mode23(s, r, id, a, host, now) {
   requireGame(id === r.parent && r.phase === 'placement', '配置できるのは推理中の親です。');
   const card = r.cards.find(c => c.id === a.card);
   if (a.type === 'place') {
-    requireGame(card && r.queue[0] === card.id && r.tiers.includes(a.tier), '操作対象のカードが変わりました。');
-    placeCard(r,card,a.tier);
+    placeNext(r,currentCardId(r),a,tier => placeCard(r,card,tier));
     r.queue.shift();
     r.version++;
   } else if (a.type === 'select') {
@@ -47,7 +46,7 @@ export function mode23(s, r, id, a, host, now) {
     r.queue.unshift(card.id);
     r.version++;
   } else if (a.type === 'submit') {
-    requireGame(r.queue.length === 0 && r.cards.every(c => c.placed), 'すべてのカードを配置してください。');
+    requireFullBoard(r,r.cards.map(c => c.placed).filter(Boolean));
     const score = r.cards.filter(c => c.placed === c.answer).length;
     const accuracy = r.settings.mode2Rule === 'accuracy';
     r.attempts++;

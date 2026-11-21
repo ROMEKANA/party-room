@@ -15,11 +15,16 @@ export function button(text, callback, cls = 'control') {
 const PALETTE = ['#edaa9e','#eac38e','#e8d68d','#b9d39c','#9dcbb8','#a1c8d6','#adbfe1','#c3b3de','#e2b4ca','#cdb5a2'];
 const MARKS = {good:'👍',bad:'👎',done:'✓'};
 export const short = name => [...(name??'')].slice(0,6).join('');
-export function avatars(s,root = $('players')) {
+export function avatars(s,root = $('players'),selection) {
   const players = s.players.filter(p=>!p.left);
   root.style.setProperty('--people',Math.min(5,players.length));
   root.replaceChildren(...players.map(p => {
-    const person = el('div','person'+(p.online?'':' offline'));
+    const cls = 'person'+(p.online === false?' offline':'');
+    const person = selection ? button('',()=>selection.select(p.id),cls+' player-tab') : el('div',cls);
+    if (selection) {
+      person.setAttribute('aria-pressed',String(p.id===selection.selected));
+      person.setAttribute('aria-label',p.id+'のTier表');
+    }
     const roles = [p.id===s.host?'ホスト':'',p.id===s.round?.parent?'親':'',
       p.id===s.round?.turn?'手番':'',p.spectator?'観戦':''].filter(Boolean);
     const circle = el('span','avatar'+(p.id===s.me?' self':''),[...p.id][0]);
@@ -29,7 +34,7 @@ export function avatars(s,root = $('players')) {
       mark.title = p.mark==='good'?'Good':p.mark==='bad'?'Bad':'進捗';
       circle.append(mark);
     }
-    person.title = [p.id,...roles,...(p.online?[]:['切断中'])].join('・');
+    person.title = [p.id,...roles,...(p.online===false?['切断中']:[])].join('・');
     person.append(circle);
     const scores = s.round?.scores;
     const score = scores && !p.spectator && Object.hasOwn(scores,p.id) ? scores[p.id] : undefined;
@@ -86,10 +91,10 @@ export function drawRows(root,tiers,cards,onCard,positions) {
     if (!inside.length) area.append(el('span','empty','＋'));
     for (const card of inside) {
       const answer = card.answer && card.answer!==tier ? card.answer : null;
-      const cls = 'tile'+(card.provisional?' provisional':'')+(answer?' wrong':'');
+      const cls = 'tile'+(card.provisional?' provisional':'')+(answer?' wrong':'')+(card.mismatch?' mismatch':'');
       const tile = button('',()=>onCard(card),cls);
       tile.title = card.word;
-      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:''));
+      tile.setAttribute('aria-label',card.word+'・'+tier+(answer?'・正解 '+answer:'')+(card.mismatch?'・不一致':''));
       tile.append(el('span','name',card.word));
       if (answer) tile.append(el('span','answer-chip',answer));
       area.append(tile);
