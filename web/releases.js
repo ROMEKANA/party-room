@@ -2,6 +2,10 @@ import {el} from './board.js';
 
 const releases = [
   {
+    version:'1.3.1',
+    title:'ランダムお題を397件追加',
+  },
+  {
     version:'1.3.0',
     title:'正答率モードの再挑戦とTier表の操作改善',
     changes:[
