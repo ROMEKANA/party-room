@@ -1,4 +1,4 @@
-import {DEFAULTS,hasParent} from '../web/config.js';
+import {DEFAULTS,hasParent,rightNeighbor} from '../web/config.js';
 import {DEFAULT_HISTORY_MINUTES,TIER} from '../web/games.js';
 import {randomTopic} from './topics.js';
 export const ONLINE_MS = 15_000;
@@ -35,6 +35,48 @@ export function requireGame(ok, message, status, code) {
 }
 export const isOnline = (p, now) => Boolean(p && !p.left && p.seen + ONLINE_MS > now);
 export const connected = (s, now) => s.players.filter(p => isOnline(p, now));
+function validNominees(ids, {setter, parent, nonParentSetter}) {
+  setter = ids.includes(setter) ? setter : null;
+  return {
+    setter,
+    parent: setter === null ? null : ids.includes(parent) && parent !== setter
+      ? parent : rightNeighbor(ids,setter),
+    nonParentSetter: ids.includes(nonParentSetter) ? nonParentSetter : null,
+  };
+}
+const memberIds = s => s.players.filter(p => !p.left).map(p => p.id);
+const currentNominees = settings => ({
+  parent:settings.nominatedParent, setter:settings.nominatedSetter,
+  nonParentSetter:settings.nominatedMode1Setter,
+});
+function setNominees(settings, {parent,setter,nonParentSetter}) {
+  settings.nominatedParent = parent;
+  settings.nominatedSetter = setter;
+  settings.nominatedMode1Setter = nonParentSetter;
+}
+
+export function moveRolesFirst(players, setter, parent) {
+  return [players.find(p => p.id === setter), players.find(p => p.id === parent),
+    ...players.filter(p => p.id !== setter && p.id !== parent)];
+}
+
+export function alignRoles(s) {
+  const {mode,nominatedSetter:setter,nominatedParent:parent} = s.settings;
+  if (s.game === TIER && hasParent(mode) && setter !== null && parent !== null &&
+      parent !== rightNeighbor(memberIds(s),setter)) {
+    s.players = moveRolesFirst(s.players,setter,parent);
+  }
+}
+
+function reconcileNominees(s) {
+  const ids = memberIds(s);
+  setNominees(s.settings,validNominees(ids,currentNominees(s.settings)));
+  for (const [mode,entry] of Object.entries(s.nominees ?? {})) {
+    s.nominees[mode] = validNominees(ids,entry ?? {});
+  }
+  if (!s.round) alignRoles(s);
+}
+
 export function reconcile(s, now) {
   if (s.round?.phase === 'topic' && !s.round.candidate) s.round.candidate = randomTopic();
   if (!s.round) s.players = s.players.filter(p => !p.left && p.seen + ONLINE_MS + HOST_GRACE_MS > now);
@@ -43,6 +85,7 @@ export function reconcile(s, now) {
     s.host = connected(s, now)[0]?.id ?? null;
   }
   if (!s.round && !s.players.length && (s.game || s.scope || s.selectedGame !== TIER)) resetEmpty(s);
+  reconcileNominees(s);
 }
 export function join(s, name, now, token) {
   const id = typeof name === 'string' ? name.trim().normalize('NFC') : '';
@@ -63,33 +106,25 @@ export function join(s, name, now, token) {
   p.left = false;
   p.last = [];
   s.host ??= id;
+  reconcileNominees(s);
   return p;
 }
 export function leave(s, p, now) {
   p.left = true;
   p.token = null;
   if (s.host === p.id) s.host = connected(s, now)[0]?.id ?? null;
-  for (const entry of Object.values(s.nominees ?? {})) {
-    if (entry.parent === p.id) { entry.parent = null; entry.setter = null; }
-    if (entry.setter === p.id) entry.setter = null;
-  }
-  if (s.settings.nominatedParent === p.id) {
-    s.settings.nominatedParent = null;
-    s.settings.nominatedSetter = null;
-  }
-  for (const key of ['nominatedMode1Setter','nominatedSetter']) {
-    if (s.settings[key] === p.id) s.settings[key] = null;
-  }
   if (s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(p.id) &&
       !s.round.drafts?.[s.round.ids.indexOf(p.id)]?.final) s.round = null;
   if (!s.round?.ids.includes(p.id)) s.players = s.players.filter(person => person !== p);
   if (s.players.every(person => person.left)) resetEmpty(s);
+  else reconcileNominees(s);
 }
-export function settingsFor(s, patch, now) {
+export function settingsFor(s, patch) {
   requireGame(patch && typeof patch === 'object' && !Array.isArray(patch), '設定が無効です。', 400);
   const next = {...DEFAULTS,...s.settings};
   delete next.topicSource;
-  const nominees = [null,...connected(s,now).map(p => p.id)];
+  const ids = memberIds(s);
+  const nominees = [null,...ids];
   const choices = {
     mode:[1,2,3,4], difficulty:['easy','normal','hard'], randomMode:['random','balanced','centerWeighted'],
     peekBoardWhileTyping:[true,false], edgePrerequisites:[true,false], mode1Wrong:['reveal','retry'], mode1Scoring:[true,false], mode1ConfirmTurn:[true,false], mode2Rule:['perfect','accuracy'],
@@ -106,21 +141,22 @@ export function settingsFor(s, patch, now) {
   }
   if (next.mode !== s.settings.mode) {
     s.nominees ??= {};
-    const previous = s.nominees[s.settings.mode] ??= {};
-    previous.parent = s.settings.nominatedParent;
-    previous.setter = s.settings.nominatedSetter;
-    previous.nonParentSetter = s.settings.nominatedMode1Setter;
-    const saved = s.nominees[next.mode];
-    if (!Object.hasOwn(patch,'nominatedParent')) next.nominatedParent = saved?.parent ?? null;
-    if (!Object.hasOwn(patch,'nominatedSetter')) next.nominatedSetter = saved?.setter ?? null;
-    if (!Object.hasOwn(patch,'nominatedMode1Setter')) next.nominatedMode1Setter = saved?.nonParentSetter ?? null;
+    s.nominees[s.settings.mode] = currentNominees(s.settings);
+    setNominees(next,validNominees(ids,s.nominees[next.mode] ?? {}));
+    for (const key of ['nominatedMode1Setter','nominatedSetter','nominatedParent']) {
+      if (Object.hasOwn(patch,key)) next[key] = patch[key];
+    }
   }
-  if (!next.nominatedParent ||
-      (Object.hasOwn(patch,'nominatedParent') && next.nominatedParent === next.nominatedSetter &&
-        !Object.hasOwn(patch,'nominatedSetter'))) next.nominatedSetter = null;
   if (patch.nominatedSetter != null) {
-    requireGame(hasParent(next.mode) && next.nominatedParent && next.nominatedParent !== patch.nominatedSetter,
-      '親を指名してから、親以外の人をお題担当に選んでください。');
+    requireGame(hasParent(next.mode),'このモードに親はありません。');
   }
+  if (patch.nominatedParent != null) {
+    requireGame(hasParent(next.mode) && next.nominatedSetter && next.nominatedSetter !== patch.nominatedParent,
+      'お題担当を指名してから、お題担当以外の人を親に選んでください。');
+  }
+  if (Object.hasOwn(patch,'nominatedSetter') && !Object.hasOwn(patch,'nominatedParent')) {
+    next.nominatedParent = rightNeighbor(ids,next.nominatedSetter);
+  }
+  setNominees(next,validNominees(ids,currentNominees(next)));
   return next;
 }

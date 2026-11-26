@@ -1,10 +1,14 @@
 import {TIERS} from '../web/config.js';
 const WEIGHTS = {easy:[3,4,3],normal:[3,4,5,4,3],hard:[3,4,5,6,5,4,3]};
-export function shuffle(values, random = Math.random) {
+export function shuffle(values, ...fixedIndices) {
+  // Draw callers can still supply a deterministic random function as the second argument.
+  const random = typeof fixedIndices[0] === 'function' ? fixedIndices.shift() : Math.random;
+  const fixed = new Set(fixedIndices);
   const copy = [...values];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
+  const positions = Array.from(copy.keys()).filter(index => !fixed.has(index));
+  for (let i = positions.length - 1; i > 0; i--) {
+    const a = positions[i], b = positions[Math.floor(random() * (i + 1))];
+    [copy[a], copy[b]] = [copy[b], copy[a]];
   }
   return copy;
 }

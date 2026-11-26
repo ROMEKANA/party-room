@@ -6,6 +6,7 @@ import worker from '../dist/server/index.js';
 import {releaseEntries} from '../web/release-data.js';
 import {VERSION} from '../web/version.js';
 import {api} from '../server/api.js';
+import {shuffle} from '../server/draw.js';
 
 function harness() {
   const sqlite = new DatabaseSync(':memory:');
@@ -352,7 +353,7 @@ test('topic chooser supports reroll and custom input, and hides candidate and to
   assert.equal((await host.state()).settings.nominatedSetter,null);
 });
 
-test('mode 1 nomination is one-time and skips no one in random rotation; mode 2 cannot nominate the parent as setter',async()=>{
+test('mode 1 nomination is one-time and skips no one in random rotation',async()=>{
   const h=harness();
   const [host,b,c]=await Promise.all(['h','b','c'].map(name=>h.join(name)));
   const owner=[host,b,c].find(p=>p.name===h.raw().host);
@@ -370,11 +371,118 @@ test('mode 1 nomination is one-time and skips no one in random rotation; mode 2 
     await owner.send('end');
   }
   assert.equal(new Set(cycle).size,3);
-  assert.equal((await owner.send('settings',{settings:{mode:2,nominatedSetter:player.name}})).status,409);
-  assert.equal((await owner.send('settings',{settings:{mode:2,nominatedParent:player.name,nominatedSetter:player.name}})).status,409);
-  assert.equal((await owner.send('settings',{settings:{mode:2,nominatedParent:player.name,nominatedSetter:owner.name}})).status,200);
-  assert.equal((await owner.send('settings',{settings:{nominatedParent:null}})).state.settings.nominatedSetter,null);
 });
+
+test('fixed-index shuffle keeps its input intact and retains deterministic draw calls',()=>{
+  const values = ['A','B','C','D','E'];
+  const random = ()=>0;
+  assert.deepEqual(shuffle(values,random),['B','C','D','E','A']);
+  assert.deepEqual(shuffle(values,random,0,2),['A','D','C','E','B']);
+  assert.deepEqual(shuffle(values,random,0,0,1,2,3,4),values);
+  assert.notEqual(shuffle(values,0),values);
+  assert.equal(shuffle(values,0)[0],'A');
+  assert.deepEqual(shuffle([],0,2),[]);
+  assert.deepEqual(values,['A','B','C','D','E']);
+});
+
+test('the host sets the topic setter first and synchronizes parent and player order in both guessing modes',async()=>{
+  const h=harness();
+  const [a,b,c,d,e] = await Promise.all(['A','B','C','D','E'].map(name=>h.join(name)));
+  await a.send('choose',{choice:'tier'});
+  const set = settings => a.send('settings',{settings});
+  const order = state => state.players.map(p=>p.id);
+  assert.equal((await set({mode:2,nominatedParent:'B'})).status,409);
+  assert.equal((await set({mode:2,nominatedSetter:'E',nominatedParent:'E'})).status,409);
+  const wrapped = (await set({mode:2,nominatedSetter:'E'})).state;
+  assert.equal(wrapped.settings.nominatedParent,'A');
+  assert.deepEqual(order(wrapped),['A','B','C','D','E']);
+  const defaultParent = (await set({nominatedSetter:'C'})).state;
+  assert.equal(defaultParent.settings.nominatedParent,'D');
+  assert.deepEqual(order((await set({nominatedParent:'D'})).state),order(defaultParent));
+  const reordered = (await set({nominatedParent:'E'})).state;
+  assert.deepEqual(order(reordered),['C','E','A','B','D']);
+  assert.deepEqual(order(await b.state()),order(reordered));
+  assert.equal((await e.state()).host,'A');
+  assert.equal((await d.send('shuffle')).status,409);
+
+  const shuffled = (await a.send('shuffle')).state;
+  assert.deepEqual(order(shuffled).slice(0,2),['C','E']);
+  assert.deepEqual(order(shuffled).slice(2).sort(),['A','B','D']);
+  assert.equal(shuffled.settings.nominatedParent,'E');
+  const replacement = await h.join(c.name);
+  assert.equal((await c.get()).status,401);
+  assert.deepEqual(order(await replacement.state()),order(shuffled));
+
+  const mode3 = (await set({mode:3,nominatedSetter:'E'})).state;
+  assert.equal(mode3.settings.nominatedParent,order(shuffled)[2]);
+  assert.equal((await set({nominatedSetter:null})).state.settings.nominatedParent,null);
+  assert.equal((await set({mode:2})).state.settings.nominatedParent,'E');
+  await a.send('start');
+  const first = h.raw().round;
+  assert.deepEqual(first.ids,order(shuffled));
+  for (const client of [a,b,replacement,d,e]) {
+    const state = await client.state();
+    assert.deepEqual(order(state),first.ids);
+    assert.deepEqual([state.round.setter,state.round.parent],['C','E']);
+  }
+  await a.send('end');
+  await a.send('start');
+  const next = h.raw().round;
+  assert.deepEqual([next.setter,next.parent],['E',first.ids[2]]);
+});
+
+test('departures and legacy settings repair a nomination without changing the current round',async()=>{
+  const h=harness();
+  const a=await h.join('A'), b=await h.join('B'), c=await h.join('C'), d=await h.join('D');
+  await a.send('choose',{choice:'tier'});
+  const set = settings => a.send('settings',{settings});
+  await set({mode:3,difficulty:'easy',nominatedSetter:'D'});
+  await b.send('leave');
+  assert.equal((await a.state()).settings.nominatedParent,'A');
+  await set({nominatedParent:'C'});
+  await c.send('leave');
+  const state = await a.state();
+  assert.deepEqual([state.settings.nominatedSetter,state.settings.nominatedParent],['D','A']);
+  await a.send('start');
+  assert.deepEqual([h.raw().round.setter,h.raw().round.parent],['D','A']);
+  await a.send('end');
+  await set({nominatedSetter:'D'});
+  await d.send('leave');
+  assert.equal((await a.state()).settings.nominatedSetter,null);
+  assert.equal((await a.send('start')).status,409);
+
+  const again = await h.join('B');
+  const raw = h.raw();
+  Object.assign(raw.settings,{nominatedParent:'B',nominatedSetter:'departed'});
+  raw.nominees = {2:{setter:'B',parent:'departed'}};
+  h.sqlite.prepare('UPDATE room SET state=?').run(JSON.stringify(raw));
+  assert.equal((await again.state()).settings.nominatedParent,null);
+  const restored = (await set({mode:2})).state;
+  assert.deepEqual([restored.settings.nominatedSetter,restored.settings.nominatedParent],['B','A']);
+  assert.equal((await a.send('start')).status,200);
+  assert.deepEqual([h.raw().round.setter,h.raw().round.parent],['B','A']);
+});
+
+test('random guessing roles follow icon order with ten players and across rounds',async()=>{
+  const h=harness();
+  const group=[];
+  for (let i=0;i<10;i++) group.push(await h.join('p'+i));
+  const [host] = group;
+  await host.send('choose',{choice:'tier'});
+  await host.send('settings',{settings:{mode:2}});
+  await host.send('shuffle');
+  let previousParent;
+  for (let i=0;i<11;i++) {
+    assert.equal((await host.send('start')).status,200);
+    const r=h.raw().round;
+    assert.equal(r.ids.length,10);
+    assert.equal(r.parent,r.ids[(r.ids.indexOf(r.setter)+1)%r.ids.length]);
+    if (previousParent) assert.equal(r.setter,previousParent);
+    previousParent = r.parent;
+    await host.send('end');
+  }
+});
+
 
 test('mode 2 input preview shows guesses at assigned tiers only to children when enabled',async()=>{
   for (const enabled of [true,false]) {
@@ -948,9 +1056,12 @@ test('update information keeps every past release and filters shared changes by 
   const circle = releaseEntries('circle-cross');
   assert.deepEqual(tier.map(entry=>entry.version),all.map(entry=>entry.version));
   assert.equal(circle.length,1);
-  assert.equal(circle[0].version,VERSION);
-  const shared = tier[0].changes.find(change=>change.gameIds.includes('circle-cross'));
+  assert.equal(all[0].version,VERSION);
+  assert.equal(tier[0].version,VERSION);
+  assert.equal(circle[0].version,'2.0.0');
+  const previous = tier.find(entry=>entry.version===circle[0].version);
+  const shared = previous.changes.find(change=>change.gameIds.includes('circle-cross'));
   assert.ok(circle[0].changes.includes(shared));
-  assert.ok(all[0].changes.some(change=>!change.gameIds.length));
+  assert.ok(all.find(entry=>entry.version==='2.0.0').changes.some(change=>!change.gameIds.length));
   assert.ok([...tier[0].changes,...circle[0].changes].every(change=>change.gameIds.length));
 });

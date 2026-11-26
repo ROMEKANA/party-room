@@ -1,4 +1,4 @@
-import {COLORS,DEFAULTS,MODES,hasParent} from './config.js';
+import {COLORS,DEFAULTS,MODES,hasParent,rightNeighbor} from './config.js';
 import {$,button,cardDescription,el,fit,short} from './board.js';
 import {consensusDetail} from './consensus.js';
 import {historyDetail,historyList} from './history.js';
@@ -180,7 +180,7 @@ export function dialogs(getState,send,loadHistory) {
     const key = releasesOpen ? JSON.stringify([kind,s?.game]) : JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
       stablePanels.includes(kind) ? null : r?.version,historyOpen ? null : r?.input?.id,
       ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
-      kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.online]):null]:null,
+      kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.left]):null]:null,
       ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null,
       kind==='gameList'?[s?.selectedGame,s?.host]:null,
       kind==='commonSettings'?[s?.common,s?.host]:null]);
@@ -500,37 +500,44 @@ export function tierSettings(body,s,tab,onTab,change,resetHistory) {
     body.append(tabs,el('p','dialog-copy',editable?'ホストが変更できます。':s.playing?'進行中のため閲覧のみ。':'ホストが変更できます。'));
   } else body.append(el('h2','setup-heading',tab===0?'基本設定':'モード設定'));
   const range = (n,step=1) => Array.from({length:n},(_,i)=>(i+1)*step);
-  const select = (title,key,options,available = true) => {
-    const label = el('label','setting-row',title), input = el('select');
+  const setOptions = (input,options,selected) => {
+    input.replaceChildren();
     options.forEach((option,i)=>{
       const [value,caption] = Array.isArray(option)?option:[option,option];
       const node = el('option','',caption);
       node.value = i;
-      node.selected = Object.is(st[key] ?? null,value);
+      node.selected = Object.is(selected,value);
       input.append(node);
     });
+  };
+  const select = (title,key,options,available = true,onPending) => {
+    const label = el('label','setting-row',title), input = el('select');
+    setOptions(input,options,st[key] ?? null);
     input.disabled = !editable || !available;
     label.classList.toggle('unavailable',!available);
     input.onchange = async () => {
       const option = options[input.selectedIndex];
       input.disabled = true;
-      const ok = await change({[key]:Array.isArray(option)?option[0]:option});
+      const value = Array.isArray(option) ? option[0] : option;
+      onPending?.(value,true);
+      const ok = await change({[key]:value});
       if (!ok && input.isConnected) {
         input.selectedIndex = options.findIndex(o=>Object.is(Array.isArray(o)?o[0]:o,st[key] ?? null));
         input.disabled = !editable || !available;
+        onPending?.(st[key] ?? null,false);
       }
     };
     label.append(input);
     body.append(label);
+    return input;
   };
   if (tab===0) {
     select('モード','mode',Object.entries(MODES).map(([id,name])=>[Number(id),name]));
     select('難易度','difficulty',[['easy','簡単・3段階'],['normal','普通・5段階'],['hard','難しい・7段階']]);
     select('1人あたりの枚数','cardsPerPlayer',range(10));
   } else if (tab===1) {
-    const playerOptions = (key,excluded = null) => s.players
-      .filter(p=>(p.online || p.id===st[key]) && p.id!==excluded)
-      .map(p=>[p.id,p.id]);
+    const ids = s.players.filter(p=>!p.left).map(p=>p.id);
+    const topicOptions = [[null,'ランダム'],...ids.map(id=>[id,id])];
     if (st.mode===1) {
       select('ライフ','mode1Lives',range(30));
       select('得点','mode1Scoring',[[false,'OFF'],[true,'ON']]);
@@ -538,7 +545,7 @@ export function tierSettings(body,s,tab,onTab,change,resetHistory) {
       select('不正解時','mode1Wrong',[['reveal','正解を公開'],['retry','同じカードで再挑戦']]);
     }
     if (!hasParent(st.mode)) {
-      select('次のお題担当','nominatedMode1Setter',[[null,'ランダム一巡'],...playerOptions('nominatedMode1Setter')]);
+      select('次のお題担当','nominatedMode1Setter',topicOptions);
       if (st.mode===4) select('カードの投稿者を表示する','mode4ShowAuthors',[[false,'OFF'],[true,'ON']]);
     } else {
       if (st.mode===2) {
@@ -547,11 +554,16 @@ export function tierSettings(body,s,tab,onTab,change,resetHistory) {
         select(st.mode2Rule==='accuracy'?'挑戦回数':'回答提出上限','mode2Attempts',range(10));
       } else body.append(el('p','dialog-copy','ライフは1回です。'));
       select('親にカードの記入者を表示',st.mode===2?'mode2ShowAuthors':'mode3ShowAuthors',[[true,'ON'],[false,'OFF']]);
-      select('次の親','nominatedParent',[[null,'ランダム一巡'],...playerOptions('nominatedParent')]);
-      const nominated = Boolean(st.nominatedParent);
-      select('次のお題担当','nominatedSetter',
-        [[null,nominated?'自動で決める':'親を指名すると選べます'],...playerOptions('nominatedSetter',st.nominatedParent)],
-        nominated);
+      const parentOptions = setter => setter && ids.length > 1
+        ? ids.filter(id=>id!==setter).map(id=>[id,id]) : [[null,'']];
+      const setter = ids.includes(st.nominatedSetter) ? st.nominatedSetter : null;
+      select('次のお題担当','nominatedSetter',topicOptions,true,(next,pending)=>{
+        setOptions(parent,parentOptions(next),pending ? rightNeighbor(ids,next) : st.nominatedParent);
+        const available = Boolean(next && ids.length > 1);
+        parent.disabled = pending || !editable || !available;
+        parent.parentElement.classList.toggle('unavailable',!available);
+      });
+      const parent = select('次の親','nominatedParent',parentOptions(setter),Boolean(setter && ids.length > 1));
     }
     if (st.mode!==4) select('入力中にTier表を確認','peekBoardWhileTyping',[[true,'ON'],[false,'OFF']]);
   } else {

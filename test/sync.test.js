@@ -19,7 +19,8 @@ test('an update waits for the final result, reloads once and rejoins by name',as
   const href = new URL('https://party.example/');
   let navigated;
   let now = 0, playing = true;
-  let published = '2.0.1';
+  const nextVersion = VERSION.replace(/\d+$/, patch=>String(Number(patch)+1));
+  let published = nextVersion;
   const calls = [], updates = [];
   const browser = {
     sessionStorage:session,localStorage:local,document:{hidden:false,addEventListener(){}},
@@ -47,11 +48,11 @@ test('an update waits for the final result, reloads once and rejoins by name',as
   assert.equal(updates.at(-1),null);
   playing = false;
   await poll();
-  assert.equal(updates.at(-1),'2.0.1');
+  assert.equal(updates.at(-1),nextVersion);
   assert.equal(await sync.send('start'),false);
-  sync.refresh('2.0.1');
-  assert.match(navigated.search,/[?]version=2\.0\.1-/);
-  assert.deepEqual(JSON.parse(session.getItem('party-room-refresh')),{version:'2.0.1',name:'ホスト'});
+  sync.refresh(nextVersion);
+  assert.ok(navigated.searchParams.get('version').startsWith(nextVersion+'-'));
+  assert.deepEqual(JSON.parse(session.getItem('party-room-refresh')),{version:nextVersion,name:'ホスト'});
   assert.equal(calls.every(([url])=>url==='/api/state'),true);
   assert.equal(calls[0][1].headers['X-App-Version'],VERSION);
 

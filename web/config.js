@@ -16,6 +16,10 @@ export const DEFAULTS = {
   nominatedParent:null, nominatedMode1Setter:null, nominatedSetter:null,
 };
 export const hasParent = mode => mode === 2 || mode === 3;
+export function rightNeighbor(ids, id) {
+  const index = ids.indexOf(id);
+  return index < 0 || ids.length < 2 ? null : ids[(index + 1) % ids.length];
+}
 export const totalCards = (settings, count) =>
   Math.max(0, count - (hasParent(settings.mode) ? 1 : 0)) * settings.cardsPerPlayer;
 export function startProblem(settings, count) {

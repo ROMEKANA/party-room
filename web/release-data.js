@@ -82,7 +82,12 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'いつでもパーティールームへの刷新・Circle & Cross追加',changes:[
+  {version:VERSION,title:'お題担当と親の選び方を改善',changes:[
+    {description:'tier並び当てとtierお題当てでは、お題担当の右隣が次の親になります。親を指名し直すと、2人がプレイヤー順の先頭に並びます。',gameIds:[TIER]},
+    {description:'お題担当と親を指定している場合、プレイヤー順をシャッフルしても2人の役割が保たれます。',gameIds:[TIER]},
+    {description:'みんなでtier表と全員一致モードのお題担当の表示を「ランダム」に変更しました。',gameIds:[TIER]},
+  ]},
+  {version:'2.0.0',title:'いつでもパーティールームへの刷新・Circle & Cross追加',changes:[
     {description:'共通ロビー、設定の保存、対戦履歴の保存期間、アプリの更新検知に対応しました。',gameIds:[]},
     {description:'プレイヤー順を共通化しました。ホストは開始前に並び順をシャッフルできます。',gameIds:[TIER,CIRCLE]},
     {description:'Circle & Crossを共通ルームで遊べるようにしました。',gameIds:[CIRCLE]},

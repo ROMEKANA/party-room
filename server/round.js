@@ -1,6 +1,6 @@
-import {TIERS, hasParent, startProblem, totalCards} from '../web/config.js';
+import {TIERS, hasParent, rightNeighbor, startProblem, totalCards} from '../web/config.js';
 import {draw, shuffle} from './draw.js';
-import {connected, requireGame} from './room.js';
+import {alignRoles, connected, requireGame} from './room.js';
 import {randomTopic} from './topics.js';
 
 function rotate(s, key, ids) {
@@ -22,26 +22,25 @@ export function phase(r, value) {
 }
 export function start(s, now) {
   s.players = s.players.filter(p => !p.left);
+  alignRoles(s);
   const settings = {...s.settings};
   const ids = connected(s, now).map(p => p.id);
   const issue = startProblem(settings, ids.length);
   requireGame(!issue, issue);
   const {mode} = settings;
-  const pickedParent = hasParent(mode) && ids.includes(settings.nominatedParent) ? settings.nominatedParent : null;
-  const parent = hasParent(mode) ? pickedParent ?? rotate(s,'parent',ids) : null;
-  const children = ids.filter(id => id !== parent);
-  let setter;
+  let setter, parent = null;
   if (!hasParent(mode)) {
     setter = ids.includes(settings.nominatedMode1Setter) ? settings.nominatedMode1Setter : rotate(s,'setter',ids);
     s.settings.nominatedMode1Setter = null;
   } else {
-    if (pickedParent && children.includes(settings.nominatedSetter)) setter = settings.nominatedSetter;
-    else setter = children.includes(s.previousParent) ? s.previousParent : shuffle(children)[0];
+    setter = ids.includes(settings.nominatedSetter) ? settings.nominatedSetter
+      : ids.includes(s.previousParent) ? s.previousParent : shuffle(ids)[0];
+    parent = rightNeighbor(ids,setter);
     s.settings.nominatedParent = null;
     s.settings.nominatedSetter = null;
     s.previousParent = parent;
   }
-  const order = children;
+  const order = ids.filter(id => id !== parent);
   const tiers = TIERS[settings.difficulty];
   const cards = draw(settings, totalCards(settings, ids.length)).map((answer, i) => ({
     id:crypto.randomUUID(), owner:order[i % order.length], word:null, answer, placed:null, fixed:false,

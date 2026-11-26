@@ -1,10 +1,11 @@
-import {connected, leave, requireGame, settingsFor} from './room.js';
+import {alignRoles, connected, leave, moveRolesFirst, requireGame, settingsFor} from './room.js';
 import {start, topicAction} from './round.js';
 import {mode1} from './mode1.js';
 import {consensus} from './consensus.js';
 import {mode23} from './mode23.js';
 import {act as circleAction,startCircle} from './circle.js';
 import {shuffle} from './draw.js';
+import {hasParent} from '../web/config.js';
 import {CIRCLE,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
 
@@ -22,6 +23,7 @@ function changeScreen(s,game) {
   s.legacyRound = null;
   s.round = null;
   s.players = s.players.filter(person => !person.left);
+  alignRoles(s);
 }
 
 export function checkScope(s,a) {
@@ -53,7 +55,10 @@ export function action(s, p, a, now, clientVersion) {
   }
   if (a.type === 'shuffle') {
     requireGame(host && !r,'プレイヤー順を変更できるのは開始前のホストです。');
-    s.players = shuffle(s.players);
+    const {mode,nominatedSetter:setter,nominatedParent:parent} = s.settings;
+    s.players = s.game === TIER && hasParent(mode) && setter !== null && parent !== null
+      ? shuffle(moveRolesFirst(s.players,setter,parent),0,1)
+      : shuffle(s.players);
     return;
   }
   if (a.type === 'browse' || a.type === 'choose') {
@@ -74,7 +79,8 @@ export function action(s, p, a, now, clientVersion) {
     changeScreen(s,a.type === 'lobby' && a.scope !== undefined ? null : s.game);
   } else if (a.type === 'settings') {
     requireGame(host && s.game === TIER && !playing(s), '設定変更は開始前か結果画面のホストのみです。');
-    s.settings = settingsFor(s,a.settings,now);
+    s.settings = settingsFor(s,a.settings);
+    alignRoles(s);
   } else if (a.type === 'start') {
     requireGame(host && s.game && !playing(s), '開始できるのは待機中か結果画面のホストです。');
     if (s.game === CIRCLE) {
