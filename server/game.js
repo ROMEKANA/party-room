@@ -1,4 +1,4 @@
-import {alignRoles, connected, gameMembers, isOnline, leave, members, moveRolesFirst, playing, requireGame, settingsFor} from './room.js';
+import {alignRoles, balanceTeams, battleRoster, connected, gameMembers, isOnline, leave, members, moveRolesFirst, playing, requireGame, settingsFor} from './room.js';
 import {start, topicAction} from './round.js';
 import {mode1} from './mode1.js';
 import {consensus} from './consensus.js';
@@ -6,13 +6,15 @@ import {mode23} from './mode23.js';
 import {act as circleAction,startCircle} from './circle.js';
 import {shuffle} from './draw.js';
 import {hasParent,startProblem} from '../web/config.js';
-import {CIRCLE,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
+import {BATTLE,CIRCLE,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
+import {battleSettings,battleStartProblem,startBattle,submitBattleMove} from './battle.js';
 import {VERSION,newerVersion} from '../web/version.js';
 
 const readyPlayers = (s,now) => gameMembers(s).filter(p => isOnline(p,now));
 
 function gameStartProblem(s, players) {
   if (s.game === TIER) return startProblem(s.settings,players.length);
+  if (s.game === BATTLE) return battleStartProblem(battleRoster(s).settings,players);
   const min = GAMES[s.game]?.min;
   return players.length < min ? `開始には接続中のプレイヤーが${min}人以上必要です。` : '';
 }
@@ -73,6 +75,11 @@ export function action(s, p, a, now, clientVersion) {
     }
     return;
   }
+  if (s.game === BATTLE && a.type === 'battleMove') {
+    requireGame(r?.id === a.round,'対戦が切り替わりました。',409,'battleClosed');
+    submitBattleMove(r,p.id,a,now);
+    return;
+  }
   requireGame((r?.id ?? null) === a.round && (r?.version ?? 0) === a.version,
     'ゲームが進みました。最新の画面で操作してください。',409,'stale');
   if (a.type === 'lobby' || a.type === 'backSettings' || a.type === 'end') {
@@ -80,9 +87,26 @@ export function action(s, p, a, now, clientVersion) {
       (a.type !== 'backSettings' || !playing(s)), '画面を移動できるのはホストです。');
     changeScreen(s,a.type === 'lobby' && a.scope !== undefined ? null : s.game);
   } else if (a.type === 'settings') {
-    requireGame(host && s.game === TIER && !playing(s), '設定変更は開始前か結果画面のホストのみです。');
-    s.settings = settingsFor(s,a.settings);
-    alignRoles(s);
+    requireGame(host && (s.game === TIER || s.game === BATTLE) && !playing(s),
+      '設定変更は開始前か結果画面のホストのみです。');
+    if (s.game === BATTLE) {
+      s.battleSettings = battleSettings(battleRoster(s).settings,a.settings,gameMembers(s).slice(0,4).map(p => p.id));
+    } else {
+      s.settings = settingsFor(s,a.settings);
+      alignRoles(s);
+    }
+  } else if (a.type === 'battleSwap' || a.type === 'battleRandom') {
+    const {settings,teams} = battleRoster(s);
+    requireGame(host && s.game === BATTLE && settings.mode === 'teams' && !r,'開始前にホストがチームを変更できます。');
+    if (a.type === 'battleRandom') s.battleTeams = balanceTeams(shuffle(gameMembers(s).map(p => p.id)));
+    else {
+      const pink = teams.pink.indexOf(a.pink);
+      const blue = teams.blue.indexOf(a.blue);
+      requireGame(pink >= 0 && blue >= 0,'異なるチームから1人ずつ選んでください。');
+      teams.pink[pink] = a.blue;
+      teams.blue[blue] = a.pink;
+      s.battleTeams = teams;
+    }
   } else if (a.type === 'start') {
     requireGame(host && s.game && !playing(s), '開始できるのは待機中か結果画面のホストです。');
     const players = readyPlayers(s,now);
@@ -91,7 +115,10 @@ export function action(s, p, a, now, clientVersion) {
     const ids = players.map(p => p.id);
     s.players = members(s);
     if (s.game === CIRCLE) s.round = startCircle(ids,s.host);
-    else start(s,ids);
+    else if (s.game === BATTLE) {
+      const {settings,teams} = battleRoster(s);
+      s.round = startBattle(ids,settings,balanceTeams(ids,teams),now);
+    } else start(s,ids);
     s.round.colors = players.map(p => p.color);
     s.scope = s.round.id;
     s.legacyRound = null;
@@ -101,6 +128,8 @@ export function action(s, p, a, now, clientVersion) {
     r.host = s.host;
     requireGame(['place','bid','pass','reveal','lose','next'].includes(a.type),'不明な操作です。',400);
     actCircle(r,p.id,a);
+  } else if (s.game === BATTLE) {
+    requireGame(false,'不明な操作です。',400);
   } else {
     requireGame(r && (r.ids.includes(p.id) || (host && a.type === 'next')), '次のラウンドをお待ちください。');
     if (a.type === 'reroll' || a.type === 'topic') topicAction(r,p.id,a);

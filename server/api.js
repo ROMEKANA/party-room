@@ -1,15 +1,23 @@
 import {action,checkScope} from './game.js';
 import {readHistory} from './history.js';
-import {GameError, HEARTBEAT_MS, connected, isExpired, join, playing, reconcile, requireGame} from './room.js';
+import {GameError, HEARTBEAT_MS, connected, isExpired, join, members, playing, reconcile, requireGame} from './room.js';
 import {update} from './store.js';
-import {GAME_IDS} from '../web/games.js';
+import {BATTLE,GAME_IDS,TIER} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
 import {visible} from './visibility.js';
+import {advanceBattle} from './battle.js';
+
+function progressBattle(s,now) {
+  if (s.game !== BATTLE || !s.round) return;
+  const present = new Set(members(s).map(p => p.id));
+  advanceBattle(s.round,now,new Set(s.round.ids.filter(id => !present.has(id))));
+}
 
 const json = (value,status = 200) => Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
 export async function api(request, db, now = Date.now()) {
   const {pathname:path,searchParams} = new URL(request.url);
   const clientVersion = request.headers.get('X-App-Version');
+  const oldClient = clientVersion && newerVersion(VERSION,clientVersion);
   try {
     if (path === '/api/version' && request.method === 'GET') return json({version:VERSION});
     if (path === '/api/join' && request.method === 'POST') {
@@ -18,9 +26,10 @@ export async function api(request, db, now = Date.now()) {
       const updated = await update(db,s => {
         reconcile(s,now);
         const p = join(s,name,now,token);
+        progressBattle(s,now);
         return {id:p.id,token:p.token,pruneHistory:true};
       },now);
-      return reply(updated,updated.result.id,now,{token:updated.result.token});
+      return reply(updated,updated.result.id,now,oldClient,{token:updated.result.token});
     }
     const isAction = path === '/api/action' && request.method === 'POST';
     const history = path.match(/^\/api\/history(?:\/([a-f0-9-]{36}))?$/i);
@@ -38,9 +47,13 @@ export async function api(request, db, now = Date.now()) {
       reconcile(s,now);
       if (!p) return {disconnected:true};
       id = p.id;
+      progressBattle(s,now);
       if (isAction) {
         requireGame(typeof a.id === 'string' && /^[a-f0-9-]{36}$/i.test(a.id),'操作IDが無効です。',400);
         if (!p.last.includes(a.id)) {
+          if (s.game === BATTLE && oldClient) {
+            return {error:new GameError('アプリを更新してください。',409,'updateRequired')};
+          }
           const resetHistory = a.type === 'resetHistory';
           if (resetHistory) {
             checkScope(s,a);
@@ -49,7 +62,14 @@ export async function api(request, db, now = Date.now()) {
             requireGame(s.host === p.id,'履歴をリセットできるのはホストです。',403,'forbidden');
             s.historyVersion = a.id;
           } else {
-            action(s,p,a,now,clientVersion);
+            try {
+              action(s,p,a,now,clientVersion);
+            } catch (error) {
+              if (a.type !== 'battleMove' || !(error instanceof GameError)) throw error;
+              // A late or invalid action can still move a deadline forward for everyone.
+              return {error};
+            }
+            progressBattle(s,now);
           }
           p.last = [...p.last.slice(-31),a.id];
           return {resetHistory,retentionChanged:a.type === 'commonSettings'};
@@ -57,6 +77,7 @@ export async function api(request, db, now = Date.now()) {
       }
     },now);
     requireGame(!updated.result?.disconnected,'同名での再接続、または退出により接続が終了しました。',401,'disconnected');
+    if (updated.result?.error) throw updated.result.error;
     if (isHistory) {
       const {state,revision} = updated;
       const game = searchParams.get('game');
@@ -64,6 +85,8 @@ export async function api(request, db, now = Date.now()) {
       const record = await readHistory(db,now,history[1] ?? null,state.common.historyMinutes,
         game === 'all' ? null : game ?? state.game,revision);
       if (!record) return json({error:'この履歴は削除されたか、表示期限が過ぎました。',code:'historyExpired'},404);
+      if (oldClient && !history[1]) return json({at:now,record:record.filter(item=>item.gameId!==BATTLE)});
+      if (oldClient && record.gameId === BATTLE) return json({error:'アプリを更新してください。',code:'updateRequired'},409);
       return json({at:now,record});
     }
     if (a?.type === 'leave') return json({ok:true});
@@ -72,7 +95,7 @@ export async function api(request, db, now = Date.now()) {
         request.headers.get('X-Room-Online') === online) {
       return json({revision:updated.revision,at:now,version:VERSION,unchanged:true});
     }
-    return reply(updated,id,now);
+    return reply(updated,id,now,oldClient);
   } catch (error) {
     if (error instanceof GameError) return json({error:error.message,code:error.code},error.status);
     console.error('Tier Studio request failed',error);
@@ -91,6 +114,12 @@ async function body(request) {
 function onlineMask(state,now) {
   return String(connected(state,now).reduce((mask,p)=>mask | (1 << p.color),0));
 }
-function reply({state,revision},id,now,extra={}) {
-  return json({revision,at:now,version:VERSION,online:onlineMask(state,now),state:visible(state,id,now),...extra});
+function reply({state,revision},id,now,oldClient,extra={}) {
+  const view = visible(state,id,now);
+  if (oldClient) {
+    if (view.game === BATTLE) Object.assign(view,{game:null,round:null,playing:false});
+    if (view.selectedGame === BATTLE) view.selectedGame = TIER;
+    delete view.battle;
+  }
+  return json({revision,at:now,version:VERSION,online:onlineMask(state,now),state:view,...extra});
 }

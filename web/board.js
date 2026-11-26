@@ -12,7 +12,7 @@ export function button(text, callback, cls = 'control') {
   b.onclick = callback;
   return b;
 }
-const PALETTE = ['#edaa9e','#eac38e','#e8d68d','#b9d39c','#9dcbb8','#a1c8d6','#adbfe1','#c3b3de','#e2b4ca','#cdb5a2'];
+export const PALETTE = ['#edaa9e','#eac38e','#e8d68d','#b9d39c','#9dcbb8','#a1c8d6','#adbfe1','#c3b3de','#e2b4ca','#cdb5a2'];
 const MARKS = {good:'👍',bad:'👎',done:'✓',turn:'▶'};
 export const short = name => [...(name??'')].slice(0,6).join('');
 export function avatars(s,root = $('players'),selection) {

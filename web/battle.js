@@ -1,0 +1,356 @@
+import {button,el,PALETTE} from './board.js';
+import {ACTIONS,BATTLE_CHOICES,BATTLE_MODES,TEAM_NAMES,actionTargets,availableActions,canUseAction} from './battle-rules.js';
+
+export const BATTLE_RULES = [
+  ['同時ターン制','全員が同時に行動を選びます。全員が選ぶか制限時間になると受付を締め切り、結果をまとめて公開します。未選択のときは溜めるになります。'],
+  ['基本アクション','溜めるとエネルギー＋1。ガードは自分への攻撃を防ぎます。単体攻撃はエネルギー1で敵1人、全体攻撃は3で敵全員に1ダメージを与えます。'],
+  ['攻撃の相殺','互いに攻撃した2人の間では攻撃を相殺します。敵同士が全体攻撃を選ぶと、そのターンは全員の攻撃が無効です。防御・相殺されてもエネルギーは消費します。'],
+  ['バトルロイヤル','2〜10人で対戦します。最後まで生き残った1人が勝利します。'],
+  ['チーム戦','同人数の2チームで対戦します。エネルギー1を味方に渡したり、味方への攻撃をかばったりできます。ガードとかばうは連続防御回数を共有します。'],
+  ['ボス戦','ボス1人とチーム側3人で対戦します。ボスの初期HPは2倍で、溜めるとエネルギー＋2。チーム側には全体攻撃がありません。'],
+  ['引き分け','全プレイヤー、または両チームが全滅すると引き分けです。'],
+];
+
+const basicFields = {
+  mode:'モード', hp:'初期HP', energy:'エネルギー上限', hitCap:'被弾上限',
+  defenseLimit:'連続防御制限', seconds:'行動制限時間',
+};
+const detailFields = {
+  readyMs:'ターン開始前の通信猶予', graceMs:'ターン終了時の通信猶予', resultMs:'ターン結果表示時間',
+};
+const formatSetting = (key,value) => value === null ? 'なし' :
+  key === 'mode' ? BATTLE_MODES[value] : key === 'seconds' ? value+'秒' :
+    key === 'defenseLimit' ? value+'回' : key in detailFields ? value+'ms' : String(value);
+const signed = value => value > 0 ? '+'+value : String(value);
+
+function setting(title,key,options,selected,editable,send) {
+  const label = el('label','setting-row',title);
+  const select = el('select');
+  for (const [index,[value,caption]] of options.entries()) {
+    const option = el('option','',caption);
+    option.value = String(index);
+    option.selected = value === selected;
+    select.append(option);
+  }
+  select.disabled = !editable;
+  select.onchange = async () => {
+    const value = options[select.selectedIndex][0];
+    select.disabled = true;
+    if (!(await send('settings',{settings:{[key]:value}})) && select.isConnected) {
+      select.selectedIndex = options.findIndex(option => option[0] === selected);
+      select.disabled = !editable;
+    }
+  };
+  label.append(select);
+  return label;
+}
+
+export function battleSettings(root,s,send,tab = null) {
+  const round = s.playing ? s.round : null;
+  const {settings,teams} = round ? {
+    settings:round.settings,
+    teams:{
+      pink:round.players.filter(p=>p.team === 'pink').map(p=>p.id),
+      blue:round.players.filter(p=>p.team === 'blue').map(p=>p.id),
+    },
+  } : s.battle;
+  const editable = s.host === s.me && !s.playing;
+  const fields = (parent,labels) => {
+    for (const [key,title] of Object.entries(labels)) {
+      parent.append(setting(title,key,BATTLE_CHOICES[key].map(value=>[value,formatSetting(key,value)]),
+        settings[key],editable,send));
+    }
+  };
+  if (tab === 1) {
+    fields(root,detailFields);
+    return;
+  }
+  const grid = el('div','setup-columns battle-setup');
+  const left = el('section','setup-fields');
+  const right = el('section','battle-mode-settings');
+  left.append(el('h2','setup-heading','基本設定'));
+  fields(left,basicFields);
+  const players = round?.players ?? s.players.filter(p=>!p.spectator);
+  if (settings.mode === 'teams') {
+    const canSwap = editable && !s.round;
+    let selected = null;
+    const controls = new Map();
+    const highlight = () => {
+      for (const [id,control] of controls) control.setAttribute('aria-pressed',String(id === selected));
+    };
+    for (const team of ['pink','blue']) {
+      const side = el('section','battle-team-setup battle-'+team);
+      side.append(el('h2','setup-heading',TEAM_NAMES[team]));
+      const members = el('div','battle-team-members');
+      for (const id of teams[team]) {
+        const player = players.find(p=>p.id === id);
+        if (!player) continue;
+        const choose = async () => {
+          if (!selected || teams[team].includes(selected)) {
+            selected = selected === id ? null : id;
+            highlight();
+          } else {
+            const fields = team === 'pink' ? {pink:id,blue:selected} : {pink:selected,blue:id};
+            if (await send('battleSwap',fields)) {
+              selected = null;
+              highlight();
+            }
+          }
+        };
+        const item = canSwap ? button('',choose,'battle-team-person') : el('div','battle-team-person');
+        const icon = el('span','avatar',[...id][0]);
+        icon.style.setProperty('--avatar',PALETTE[player.color]);
+        item.append(icon,el('span','battle-team-name',id));
+        item.title = id;
+        if (canSwap) controls.set(id,item);
+        members.append(item);
+      }
+      side.append(members);
+      right.append(side);
+    }
+    highlight();
+    if (canSwap) right.append(button('ランダムチーム分け',()=>send('battleRandom')));
+  } else if (settings.mode === 'boss') {
+    right.classList.add('setup-fields');
+    right.append(el('h2','setup-heading','ボス戦'),
+      setting('ボス','bossId',[[null,'ランダム'],...players.map(p=>[p.id,p.id])],settings.bossId,editable,send));
+    if (round) right.append(el('p','deck-message','今回のボス '+round.boss));
+  }
+  grid.append(left,right);
+  root.append(grid);
+  if (tab === null && s.startProblem) root.append(el('p','deck-message',s.startProblem));
+}
+
+export const battleOutcome = outcome => outcome.draw ? '引き分け' :
+  (outcome.winner ?? TEAM_NAMES[outcome.team])+'の勝利';
+
+function stat(icon,label,value,max,delta,animate) {
+  const line = el('div','battle-stat '+label);
+  const number = el('span','battle-number',icon+' '+value+'/'+max);
+  number.setAttribute('aria-label',(label === 'battle-hp' ? 'HP ' : 'エネルギー ')+value+' / '+max);
+  const track = el('span','battle-stat-track');
+  const bar = el('span','battle-stat-bar');
+  track.append(bar);
+  line.append(number,track);
+  bar.style.width = (value/max)*100+'%';
+  if (animate && delta && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    bar.animate([{width:(value-delta)/max*100+'%'},{width:value/max*100+'%'}],{duration:240,easing:'ease-out'});
+  }
+  return line;
+}
+
+const effectNames = {hit:'命中',block:'防御',cancel:'相殺'};
+
+function effectText(effects) {
+  const counts = new Map();
+  for (const {result} of effects) counts.set(result,(counts.get(result) ?? 0)+1);
+  return Object.entries(effectNames).filter(([kind])=>counts.has(kind))
+    .map(([kind,name])=>name+(effects.length > 1 ? counts.get(kind) : '')).join(' ');
+}
+
+function playerCard(player,s,round,review,animate,onTarget) {
+  const card = onTarget ? button('',()=>onTarget(player.id),'battle-card') : el('div','battle-card');
+  card.classList.add('battle-'+(player.team ?? 'solo'));
+  card.classList.toggle('battle-self',player.id === s.me);
+  card.classList.toggle('battle-out',player.hp === 0);
+  const last = round.previous?.actions;
+  const action = last && Object.hasOwn(last,player.id) ? last[player.id] : null;
+  const name = el('strong','battle-name',player.id);
+  const flag = player.hp === 0 ? '脱落' : review ? '' : !player.online ? '切断' : player.submitted ? '✓' : '…';
+  const status = el('span','battle-card-status',flag);
+  status.title = flag === '✓' ? '選択済み' : flag === '…' ? '未選択' : flag;
+  const identity = el('div','battle-identity');
+  identity.append(name);
+  if (flag) identity.append(status);
+  if (!review && action) {
+    const icon = el('span','battle-last-icon',ACTIONS[action.kind].icon);
+    icon.title = '前のターン '+ACTIONS[action.kind].name;
+    identity.append(icon);
+  }
+  card.append(identity);
+  card.append(stat('♥','battle-hp',player.hp,player.maxHp,action?.hpDelta,animate),
+    stat('⚡','battle-energy',player.energy,round.settings.energy,action?.energyDelta,animate));
+  if (review) {
+    const move = action && ACTIONS[action.kind];
+    const turnAction = move ? [move.icon+' '+move.name,action.target].filter(Boolean).join(' ') : '';
+    const result = move ? [
+      effectText(action.effects),
+      action.hpDelta ? 'HP '+signed(action.hpDelta) : '',
+      action.energyDelta ? '⚡'+signed(action.energyDelta) : '',
+      action.eliminated ? '脱落' : '',
+    ].filter(Boolean).join(' · ') : '';
+    if (turnAction) {
+      card.append(el('span','battle-turn-action',turnAction),el('span','battle-turn-result',result));
+      card.title = [player.id,turnAction,result,...action.effects.map(effect=>effect.target+' '+effectNames[effect.result])].filter(Boolean).join(' ／ ');
+    }
+  } else card.title = player.id+' ／ '+status.title;
+  return card;
+}
+
+function battleCards(root,s,round,review,animate,onTarget) {
+  const board = el('section','battle-cards');
+  board.setAttribute('aria-label','対戦プレイヤー');
+  const groups = round.settings.mode === 'royale' ? [round.players] :
+    (round.settings.mode === 'teams' ? ['pink','blue'] : ['boss','party']).map(team=>round.players.filter(p=>p.team === team));
+  const cards = new Map();
+  for (const group of groups) {
+    const rowSizes = round.settings.mode === 'royale'
+      ? Array.from({length:Math.ceil(group.length/2)},(_,i)=>Math.min(2,group.length-i*2))
+      : group.length < 4 ? [group.length] : [group.length-2,2];
+    let index = 0;
+    for (const size of rowSizes) {
+      const row = el('div','battle-card-row');
+      row.style.setProperty('--battle-columns',size);
+      for (const player of group.slice(index,index+size)) {
+        const card = playerCard(player,s,round,review,animate,onTarget);
+        cards.set(player.id,card);
+        row.append(card);
+      }
+      index += size;
+      board.append(row);
+    }
+  }
+  root.append(board);
+  return cards;
+}
+
+export function battleHistory(root,record) {
+  root.classList.add('battle-history');
+  root.append(el('h3','circle-heading',battleOutcome(record.outcome)),
+    el('p','circle-info',BATTLE_MODES[record.mode]+' ／ '+record.turn+'ターン'+(record.boss ? ' ／ ボス '+record.boss : '')));
+  battleCards(root,{me:null},record,true,false);
+  const settings = el('dl','circle-settings');
+  for (const [key,title] of Object.entries({...basicFields,...detailFields})) {
+    settings.append(el('dt','',title),el('dd','',formatSetting(key,record.settings[key])));
+  }
+  root.append(settings);
+}
+
+export function battleUI() {
+  let turnKey, targetKind, sequence, inFlight, reviewed, refreshControls;
+  return function render(root,s,send,serverNow) {
+    const r = s.round;
+    const me = r.players.find(p=>p.id === s.me);
+    const key = r.id+'/'+r.turn;
+    if (key !== turnKey) {
+      turnKey = key;
+      targetKind = null;
+      sequence = 0;
+      inFlight = new Set();
+    }
+    sequence = Math.max(sequence,r.ownMove?.sequence ?? 0);
+    const review = r.phase === 'review' || r.phase === 'result';
+    const animate = review && reviewed !== key;
+    if (review) reviewed = key;
+    const turn = el('div','battle-turn');
+    const clock = el('span','battle-clock');
+    const heading = el('div','battle-turn-heading');
+    heading.append(el('strong','',r.phase === 'result' ? battleOutcome(r.outcome) : 'ターン '+r.turn),clock);
+    turn.append(heading);
+    const track = el('div','progress-track battle-clock-track');
+    const bar = el('div','battle-clock-bar');
+    track.append(bar);
+    if (r.endsAt !== null && !review) turn.append(track);
+    root.append(turn);
+
+    const open = () => ['prepare','select'].includes(r.phase) && serverNow() >= r.startsAt &&
+      (r.endsAt === null || serverNow() < r.endsAt);
+    async function submit(kind,target) {
+      targetKind = null;
+      const sent = ++sequence;
+      inFlight.add(sent);
+      paint();
+      await send('battleMove',{kind,target,turn:r.turn,sequence:sent},r);
+      if (key === turnKey) {
+        inFlight.delete(sent);
+        refreshControls();
+      }
+    }
+    const canAct = me?.hp > 0 && !review;
+    const cards = battleCards(root,s,r,review,animate,canAct ? target=>{
+      if (open() && targetKind && actionTargets(r,me,targetKind).includes(target)) submit(targetKind,target);
+    } : null);
+
+    const actions = new Map();
+    const status = el('p','battle-input-status');
+    if (me) {
+      const keys = availableActions(r,me);
+      const controls = el('section','battle-controls');
+      controls.setAttribute('aria-label','行動選択');
+      const choices = el('div','battle-actions battle-actions-'+keys.length);
+      for (const kind of keys) {
+        const action = ACTIONS[kind];
+        const label = action.icon+' '+action.name;
+        const control = button(label,()=>{
+          if (!open() || !canUseAction(r,me,kind)) return;
+          if (!action.target) submit(kind);
+          else {
+            targetKind = targetKind === kind ? null : kind;
+            paint();
+          }
+        },'control battle-action battle-action-'+kind);
+        if (action.cost) control.append(el('small','','⚡'+action.cost));
+        if (action.defense && r.settings.defenseLimit !== null) {
+          control.append(el('small','',me.defense+'/'+r.settings.defenseLimit));
+        }
+        actions.set(kind,control);
+        choices.append(control);
+      }
+      controls.append(status,choices);
+      root.append(controls);
+    }
+
+    let wasOpen;
+    function paint() {
+      const enabled = open();
+      wasOpen = enabled;
+      const selected = enabled && targetKind && canAct && canUseAction(r,me,targetKind) ? targetKind : null;
+      const validTargets = selected ? new Set(actionTargets(r,me,selected)) : new Set();
+      for (const [id,card] of cards) {
+        if (canAct) {
+          card.disabled = !validTargets.has(id);
+          card.classList.toggle('battle-target',validTargets.has(id));
+        }
+      }
+      for (const [kind,control] of actions) {
+        control.disabled = !canAct || !enabled || !canUseAction(r,me,kind);
+        control.setAttribute('aria-pressed',String(selected === kind || (!selected && r.ownMove?.kind === kind)));
+      }
+      if (canAct) {
+        const pending = [...inFlight].some(sent=>sent > (r.ownMove?.sequence ?? 0));
+        const accepted = r.ownMove ? '受付済み '+ACTIONS[r.ownMove.kind].name+(r.ownMove.target ? ' · '+r.ownMove.target : '') : '';
+        status.textContent = selected ? ACTIONS[selected].name+'の対象を選択' :
+          pending ? '送信中…' : accepted || (enabled ? '行動を選択' : '対戦状況を同期中');
+        status.title = status.textContent;
+      }
+      if (me && !canAct) status.textContent = me.hp === 0 ? '脱落 · 観戦中' : 'このターンの行動を確定しました';
+    }
+    function paintClock() {
+      const now = serverNow();
+      const enabled = open();
+      if (wasOpen !== enabled) paint();
+      if (review) clock.textContent = r.phase === 'review' ? 'ターン結果' : BATTLE_MODES[r.settings.mode];
+      else if (now < r.startsAt) clock.textContent = 'ターン開始待ち';
+      else if (!enabled) clock.textContent = '結果を確定中';
+      else {
+        const seconds = r.endsAt === null ? '制限時間なし' : Math.ceil((r.endsAt-now)/1000)+'秒';
+        if (seconds !== clock.textContent) clock.textContent = seconds;
+      }
+      if (r.endsAt !== null && !review) {
+        const fraction = Math.min(1,Math.max(0,(r.endsAt-now)/(r.endsAt-r.startsAt)));
+        bar.style.transform = 'scaleX('+(r.phase === 'closing' ? 0 : fraction)+')';
+      }
+    }
+    refreshControls = paint;
+    paint();
+    paintClock();
+    if (!review) {
+      const update = () => {
+        if (!turn.isConnected) return;
+        paintClock();
+        requestAnimationFrame(update);
+      };
+      requestAnimationFrame(update);
+    }
+  };
+}

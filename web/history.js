@@ -1,4 +1,6 @@
-import {CIRCLE,GAMES,TIER} from './games.js';
+import {BATTLE,CIRCLE,GAMES,TIER} from './games.js';
+import {BATTLE_MODES} from './battle-rules.js';
+import {battleHistory,battleOutcome} from './battle.js';
 import {circleTable} from './circle.js';
 import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
 import {MODES} from './config.js';
@@ -22,9 +24,11 @@ export function historyList(body,records,select,scrollTop) {
     timestamp.dateTime = new Date(record.endedAt).toISOString();
     const game = GAMES[record.gameId] ?? GAMES[TIER];
     const circle = record.gameId===CIRCLE;
-    row.append(timestamp,el('span','history-game',(circle?'○× ':'▤ ')+game.title),
-      el('strong','history-topic',circle?record.winner+'の勝利':record.topic),
-      el('span','history-meta',circle?`${record.count}人 ／ ${record.rounds}ラウンド`:
+    const battle = record.gameId===BATTLE;
+    row.append(timestamp,el('span','history-game',(battle?'⚡ ':circle?'○× ':'▤ ')+game.title),
+      el('strong','history-topic',battle?battleOutcome(record.outcome):circle?record.winner+'の勝利':record.topic),
+      el('span','history-meta',battle?`${BATTLE_MODES[record.mode]} ／ ${record.count}人 ／ ${record.turn}ターン`:
+        circle?`${record.count}人 ／ ${record.rounds}ラウンド`:
         [metadata(record),record.win==null?'':record.win?'クリア':'失敗'].filter(Boolean).join(' ／ ')));
     list.append(row);
   }
@@ -32,6 +36,7 @@ export function historyList(body,records,select,scrollTop) {
   list.scrollTop = scrollTop;
 }
 export function historyDetail(body,record,me,card,selectCard,selectedPlayer,selectPlayer) {
+  if (record.gameId===BATTLE) return battleHistory(body,record);
   if (record.gameId===CIRCLE) {
     body.append(el('h3','circle-heading',record.winner+'の勝利'),
       el('p','circle-info',`${record.count}人 · ${record.rounds}ラウンド`));

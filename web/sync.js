@@ -10,6 +10,7 @@ const makeId = () => globalThis.crypto.randomUUID?.() ??
 
 export function connect(onState,onError,onClose,onUpdate) {
   let token = sessionStorage.getItem(TOKEN), generation = 0, timer, state, revision = -1, at = -1, online;
+  let timeOffset = Date.now()-performance.now();
   let pending = false, polling = false, failures = 0, published = VERSION, refreshName = null;
   const refreshed = sessionStorage.getItem(REFRESH);
   if (refreshed) {
@@ -36,17 +37,19 @@ export function connect(onState,onError,onClose,onUpdate) {
     headers['X-App-Version'] = VERSION;
     if (auth) headers.Authorization = 'Bearer '+auth;
     if (payload) headers['Content-Type'] = 'application/json';
+    const started = performance.now();
     const response = await fetch('/api/'+path,{method:payload?'POST':'GET',headers,
       body:payload?JSON.stringify(payload):undefined,signal:AbortSignal.timeout(6000),cache:'no-store'});
     const data = await response.json();
     if (!response.ok) throw Object.assign(new Error(data.error),{code:data.code});
-    return data;
+    return {...data,clockMidpoint:(started+performance.now())/2};
   }
   function accept(data) {
     if (newerVersion(data.version,published)) published = data.version;
     if (data.revision != null && (data.revision > revision || data.revision === revision && data.at >= at)) {
       revision = data.revision;
       at = data.at;
+      timeOffset = at-data.clockMidpoint;
       if (data.state) {
         online = data.online;
         const old = state;
@@ -118,6 +121,7 @@ export function connect(onState,onError,onClose,onUpdate) {
   });
   return {
     join,
+    serverNow:()=>performance.now()+timeOffset,
     refresh(version) {
       sessionStorage.setItem(REFRESH,JSON.stringify({version,name:state?.me ?? refreshName}));
       const url = new URL(location.href);
@@ -135,9 +139,10 @@ export function connect(onState,onError,onClose,onUpdate) {
       }
     },
     async send(type,fields = {},base = state?.round) {
-      if (!token || pending || (available() && !state?.playing && type !== 'leave')) return false;
+      const battleMove = type === 'battleMove';
+      if (!token || (!battleMove && pending) || (available() && !state?.playing && type !== 'leave')) return false;
       const g = generation;
-      pending = true;
+      if (!battleMove) pending = true;
       const payload = {id:makeId(),type,game:state.game,scope:state.scope,
         round:base?.id??null,version:base?.version??0,
         ...(base?.draftRevision != null ? {draftRevision:base.draftRevision} : {}),...fields};
@@ -156,13 +161,14 @@ export function connect(onState,onError,onClose,onUpdate) {
       } catch (error) {
         if (g !== generation) return false;
         if (error.code === 'disconnected') stop(error.message);
+        else if (battleMove && ['battleClosed','stale'].includes(error.code)) schedule(0);
         else if (error.code === 'updateRequired' || error.code === 'stale') {
           onError(error.message,false);
           schedule(0);
         } else onError(error.code ? error.message : '通信できませんでした。接続を確認してください。',false);
         return false;
       } finally {
-        if (g === generation) pending = false;
+        if (g === generation && !battleMove) pending = false;
       }
     },
   };

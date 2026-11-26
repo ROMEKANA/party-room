@@ -3,14 +3,16 @@ import {$,avatars,board,button,el,fit,progress,resultSummary,short,showLife,show
 import {connect,storedName} from './sync.js';
 import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
 import {placementProblem,remainingCards} from './placement.js';
-import {CIRCLE,GAMES} from './games.js';
+import {BATTLE,CIRCLE,GAMES,TIER} from './games.js';
 import {VERSION} from './version.js';
 import {lobby} from './party.js';
 import {circlePlay,circleSettings} from './circle.js';
+import {battleSettings,battleUI} from './battle.js';
 import {dialogs,tierSettings} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
 let resultRound, resultPlayer;
+const renderBattle = battleUI();
 let ownBoardRound, ownCardsHidden = false;
 const panel = dialogs(()=>state,(...args)=>sync.send(...args),(id,game)=>sync.history(id,game));
 const sync = connect((next,previous) => {
@@ -109,7 +111,7 @@ function render() {
   $('entrance').hidden = Boolean(state);
   $('release-history').hidden = Boolean(state);
   $('nav').hidden = $('players').hidden = !state;
-  const tierBoard = Boolean(state?.game && state.game !== CIRCLE && r);
+  const tierBoard = Boolean(state?.game === TIER && r);
   for (const id of ['intro','board','deck']) $(id).hidden = !tierBoard;
   $('party').hidden = !state || tierBoard;
   $('rules').hidden = $('settings').hidden = !state?.game;
@@ -121,7 +123,8 @@ function render() {
     return;
   }
   const s = state;
-  const watching = s.players.find(p=>p.id===s.me)?.spectator;
+  const watching = s.game === BATTLE && r ? !r.players.some(p=>p.id===s.me) :
+    s.players.find(p=>p.id===s.me)?.spectator;
   if (!tierBoard) {
     const key = JSON.stringify(s);
     if (key !== lastScreen) {
@@ -129,16 +132,20 @@ function render() {
       avatars(s);
       const root = $('party');
       root.replaceChildren();
-      root.className = 'party-screen '+(!s.game?'lobby-screen':r?'circle-screen':'setup-screen');
+      const battle = s.game === BATTLE;
+      root.className = 'party-screen '+(!s.game?'lobby-screen':r?(battle?'battle-screen':'circle-screen'):'setup-screen');
       const send = (...args)=>sync.send(...args);
       if (!s.game) lobby(root,s,send,(...args)=>panel.open(...args));
       else {
         const host = s.me===s.host;
         const title = el('h1','party-title',GAMES[s.game].title);
         if (watching) title.append(el('span','spectator-status','観戦中'));
-        root.append(title);
+        if (!battle || !r || watching) root.append(title);
         if (watching && !r) root.append(el('p','deck-message','空きができると順番に参加します。'));
-        if (r) circlePlay(root,r,send,host);
+        if (battle) {
+          if (r) renderBattle(root,s,send,sync.serverNow);
+          else battleSettings(root,s,send);
+        } else if (r) circlePlay(root,r,send,host);
         else if (s.game===CIRCLE) circleSettings(root,s);
         else {
           const settings = el('div','setup-columns');

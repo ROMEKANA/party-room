@@ -1278,10 +1278,13 @@ test('update information keeps every past release and filters shared changes by 
   const all = releaseEntries();
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
-  assert.deepEqual(tier.map(entry=>entry.version),all.slice(1).map(entry=>entry.version));
+  assert.deepEqual(tier.map(entry=>entry.version),all.slice(2).map(entry=>entry.version));
+  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[VERSION]);
   assert.deepEqual(circle.map(entry=>entry.version),['2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.ok(all[0].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[0].title,'『名前の知らないあのゲーム』を追加');
+  assert.equal(all[1].version,'2.0.3');
+  assert.ok(all[1].changes.every(change=>change.gameIds.length===0));
   assert.equal(tier[0].version,'2.0.2');
   assert.equal(tier[1].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
@@ -1289,4 +1292,166 @@ test('update information keeps every past release and filters shared changes by 
   assert.ok(circle[1].changes.includes(shared));
   assert.ok(all.find(entry=>entry.version==='2.0.0').changes.some(change=>!change.gameIds.length));
   assert.ok([...tier[0].changes,...circle[0].changes].every(change=>change.gameIds.length));
+});
+
+const battleId = 'unknown-battle';
+async function battleRoom(names,settings = {}) {
+  const h = harness(), sessions = [];
+  for (const name of names) sessions.push(await h.join(name));
+  const [host] = sessions;
+  assert.equal((await host.send('browse',{choice:battleId})).status,200);
+  assert.equal((await host.send('choose',{choice:battleId})).status,200);
+  assert.equal((await host.send('settings',{settings})).status,200);
+  return {h,host,sessions};
+}
+
+test('battle: every mode supports its prescribed counts and team setup stays balanced',async()=>{
+  for (const mode of ['royale','teams','boss']) {
+    const {h,host,sessions} = await battleRoom(['A'],{mode});
+    for (let size=1;size<=10;size++) {
+      if (size > 1) sessions.push(await h.join(String(size)));
+      const s = await host.state();
+      const canStart = mode === 'royale' ? size >= 2 : mode === 'teams' ? size >= 4 && size%2 === 0 : size >= 4;
+      assert.equal(!s.startProblem,canStart);
+      assert.equal(s.players.filter(p=>p.spectator).length,mode === 'boss' ? Math.max(0,size-4) : 0);
+      if (mode === 'teams' && size%2 === 0) {
+        assert.deepEqual(s.battle.teams.pink,s.players.slice(0,size/2).map(p=>p.id));
+      }
+    }
+    if (mode === 'teams') {
+      assert.equal((await sessions[1].send('battleRandom')).status,409);
+      assert.equal((await host.send('battleSwap',{pink:'2',blue:'8'})).status,200);
+      await host.send('shuffle');
+      const expected = (await host.state()).battle.teams;
+      assert.deepEqual((await sessions[1].state()).battle.teams,expected);
+      assert.ok(!expected.pink.includes('2') && expected.pink.includes('8'));
+      await sessions[1].send('leave');
+      const rebalanced = (await host.state()).battle.teams;
+      assert.deepEqual(rebalanced.pink,expected.pink);
+      assert.equal(rebalanced.blue.length,4);
+      assert.ok(!rebalanced.blue.includes('2'));
+      assert.equal((await host.send('start')).status,409);
+      await h.join('replacement');
+      const randomized = (await host.send('battleRandom')).state.battle.teams;
+      assert.equal(new Set([...randomized.pink,...randomized.blue]).size,10);
+      assert.equal(randomized.pink.length,5);
+      assert.equal(randomized.blue.length,5);
+    }
+    if (mode === 'boss') {
+      assert.equal((await host.send('settings',{settings:{bossId:'10'}})).status,400);
+      assert.equal((await host.send('settings',{settings:{bossId:'3'}})).status,200);
+    }
+    const started = await host.send('start');
+    assert.equal(started.status,200);
+    assert.equal(started.state.round.players.length,mode === 'boss' ? 4 : 10);
+    if (mode === 'boss') assert.equal(started.state.round.boss,'3');
+  }
+  const {host} = await battleRoom(['A','B','C','D'],{mode:'boss'});
+  const r = (await host.send('start')).state.round;
+  assert.ok(r.players.some(p=>p.id === r.boss && p.maxHp === 6));
+});
+
+test('battle: secret actions, concurrent changes, grace deadlines, once-only history and version compatibility',async()=>{
+  const {h,host,sessions:[a,b]} = await battleRoom(['A','B'],{seconds:3,hp:1});
+  const initial = (await host.send('start')).state;
+  const observer = await h.join('観戦者');
+  assert.equal((await observer.state()).players.find(p=>p.id === observer.name).spectator,true);
+  const move = (session,id,turn,sequence,kind,target,version = 0) => h.req('action',{
+    id,type:'battleMove',game:battleId,scope:initial.scope,round:initial.round.id,version,
+    turn,sequence,kind,target,
+  },session.token);
+  const send = (session,turn,sequence,kind,target) => move(session,crypto.randomUUID(),turn,sequence,kind,target);
+  assert.equal((await send(a,1,1,'charge')).code,'battleClosed');
+  h.advance(1000);
+  assert.equal((await send(observer,1,1,'charge')).status,403);
+  assert.equal((await send(a,1,1,'strike','B')).code,'battleInvalid');
+  const duplicate = crypto.randomUUID();
+  await move(a,duplicate,1,3,'charge');
+  const [oldA,firstB,repeatA] = await Promise.all([
+    send(a,1,2,'guard'),send(b,1,1,'guard'),move(a,duplicate,1,4,'guard'),
+  ]);
+  assert.ok([oldA,firstB,repeatA].every(reply=>reply.status === 200));
+  assert.equal((await a.state()).round.ownMove.kind,'charge');
+  assert.equal((await a.state()).round.phase,'closing');
+  for (const session of [b,observer]) {
+    const view = (await session.state()).round;
+    assert.equal(view.players.find(p=>p.id === 'A').submitted,true);
+    assert.ok(!Object.hasOwn(view,'moves'));
+    assert.ok(!Object.hasOwn(view.players[0],'kind'));
+    assert.equal(view.previous,null);
+  }
+  assert.equal((await observer.state()).round.ownMove,null);
+  const oldBuild = await h.req('state',null,observer.token,{'X-App-Version':'2.0.3'});
+  assert.equal(oldBuild.state.game,null);
+  assert.equal(oldBuild.state.playing,false);
+  h.advance(799);
+  assert.equal((await send(b,1,2,'charge')).status,200);
+  assert.deepEqual((await a.state()).round.players.map(p=>[p.hp,p.energy]),[[1,0],[1,0]]);
+  h.advance(1);
+  assert.equal((await send(a,1,4,'guard')).code,'battleClosed');
+  const review = (await b.state()).round;
+  assert.equal(review.phase,'review');
+  assert.deepEqual(review.players.map(p=>[p.hp,p.energy]),[[1,1],[1,1]]);
+  assert.equal(review.previous.actions.A.kind,'charge');
+  h.advance(1500);
+  const next = (await observer.state()).round;
+  assert.equal(next.turn,2);
+  assert.equal(next.phase,'prepare');
+  h.advance(1000);
+  assert.equal((await send(b,1,5,'charge')).code,'battleClosed');
+  await send(a,2,1,'strike','B');
+  h.advance(3000);
+  assert.equal((await b.state()).round.phase,'closing');
+  h.advance(800);
+  const replies = await Promise.all([a.state(),b.state(),observer.state()]);
+  assert.ok(replies.every(s=>s.round.phase === 'result' && s.round.outcome.winner === 'A'));
+  const [record] = (await host.history()).record;
+  assert.equal(record.turn,2);
+  assert.equal((await host.history()).record.length,1);
+  const detail = (await observer.history(record.id)).record;
+  assert.deepEqual(detail.players.map(p=>[p.id,p.hp,p.energy]),[['A',1,0],['B',0,2]]);
+  assert.equal(detail.previous.actions.B.kind,'charge');
+  assert.equal(detail.settings.seconds,3);
+  assert.deepEqual((await h.req('history?game=all',null,observer.token,{'X-App-Version':'2.0.3'})).record,[]);
+  assert.equal((await host.send('start')).state.round.turn,1);
+});
+
+test('battle: no-limit turns wait, reconnect preserves moves and non-host synchronization advances expired seats',async()=>{
+  const {h,host,sessions:[a,b,c,d]} = await battleRoom(['A','__proto__','C','D'],{mode:'teams',seconds:null});
+  const started = (await host.send('start')).state.round;
+  h.advance(1000);
+  const movement = (session,turn,sequence,kind) => session.send('battleMove',{turn,sequence,kind});
+  await movement(a,1,1,'guard');
+  await movement(b,1,1,'guard');
+  const returned = await h.join('__proto__');
+  assert.equal((await movement(b,1,2,'charge')).status,401);
+  assert.equal((await returned.state()).round.ownMove.kind,'guard');
+  assert.equal((await returned.state()).round.players.find(p=>p.id === '__proto__').team,started.players[1].team);
+  await movement(returned,1,2,'charge');
+  await movement(c,1,1,'charge');
+  assert.equal((await returned.state()).round.phase,'select');
+  h.advance(24_000);
+  await Promise.all([returned.get(),c.get()]);
+  assert.equal((await returned.state()).round.phase,'select');
+  assert.equal((await returned.state()).host,'A');
+  h.advance(22_000);
+  assert.equal((await d.get()).status,401);
+  assert.equal((await returned.state()).round.phase,'closing');
+  assert.equal((await returned.state()).host,'__proto__');
+  h.advance(800);
+  const review = (await c.state()).round;
+  assert.equal(review.previous.actions.A.kind,'guard');
+  assert.ok(Object.hasOwn(review.previous.actions,'__proto__'));
+  assert.equal(review.previous.actions.D.kind,'charge');
+  h.advance(15_000);
+  const next = (await c.state()).round;
+  assert.equal(next.turn,2);
+  assert.equal(next.phase,'prepare');
+  h.advance(1000);
+  const oldHost = await h.join('A');
+  assert.equal((await oldHost.state()).round.players.find(p=>p.id === 'A').defense,1);
+  await oldHost.send('leave');
+  await movement(returned,2,1,'charge');
+  assert.equal((await movement(c,2,1,'charge')).state.round.phase,'closing');
+  assert.equal((await returned.send('next')).status,400);
 });

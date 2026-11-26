@@ -1,5 +1,6 @@
 import {DEFAULTS,hasParent,rightNeighbor} from '../web/config.js';
-import {CIRCLE,DEFAULT_HISTORY_MINUTES,GAMES,TIER} from '../web/games.js';
+import {BATTLE,CIRCLE,DEFAULT_HISTORY_MINUTES,GAMES,TIER} from '../web/games.js';
+import {BATTLE_DEFAULTS} from '../web/battle-rules.js';
 import {randomTopic} from './topics.js';
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
@@ -26,6 +27,8 @@ export function prepareRoom(s) {
 function resetEmpty(s) {
   const settings = {...s.settings,nominatedParent:null,nominatedMode1Setter:null,nominatedSetter:null};
   Object.assign(s,initialRoom(),{settings,common:s.common,legacyRound:null,nominees:{}});
+  if (s.battleSettings) s.battleSettings.bossId = null;
+  delete s.battleTeams;
 }
 export class GameError extends Error {
   constructor(message, status = 409, code = 'invalid') {
@@ -55,7 +58,34 @@ export const playing = s => Boolean(s.round && s.round.phase !== (s.game === CIR
 export function gameMembers(s) {
   const game = GAMES[s.game];
   if (!game) return [];
-  return members(s).slice(0,game.modeMax?.[s.settings.mode] ?? game.max);
+  const mode = s.game === BATTLE ? s.battleSettings?.mode : s.settings.mode;
+  return members(s).slice(0,game.modeMax?.[mode] ?? game.max);
+}
+
+export function balanceTeams(ids, previous = {}) {
+  const pink = (previous.pink ?? []).filter(id => ids.includes(id)).slice(0,Math.ceil(ids.length/2));
+  const blue = (previous.blue ?? []).filter(id => ids.includes(id)).slice(0,Math.floor(ids.length/2));
+  for (const id of ids) {
+    if (!pink.includes(id) && !blue.includes(id)) {
+      (pink.length < Math.ceil(ids.length/2) ? pink : blue).push(id);
+    }
+  }
+  return {pink,blue};
+}
+
+export function battleRoster(s) {
+  const players = members(s);
+  const settings = {...BATTLE_DEFAULTS,...s.battleSettings};
+  const slots = players.slice(0,GAMES[BATTLE].modeMax.boss);
+  if (!slots.some(player => player.id === settings.bossId)) settings.bossId = null;
+  return {settings,teams:balanceTeams(players.map(player => player.id),s.battleTeams)};
+}
+
+function reconcileBattleRoster(s) {
+  if (!s.battleSettings && !s.battleTeams) return;
+  const {settings,teams} = battleRoster(s);
+  if (s.battleSettings) s.battleSettings = settings;
+  if (s.battleTeams) s.battleTeams = teams;
 }
 
 export function roundPlayers(s, now) {
@@ -113,6 +143,7 @@ export function reconcile(s, now) {
   if (!members(s).some(p => p.id === s.host)) s.host = connected(s,now)[0]?.id ?? null;
   if (s.round?.phase === 'topic' && !s.round.candidate) s.round.candidate = randomTopic();
   reconcileNominees(s);
+  reconcileBattleRoster(s);
 }
 
 export function join(s, name, now, token) {
@@ -142,6 +173,7 @@ export function join(s, name, now, token) {
   p.last = [];
   s.host ??= id;
   reconcileNominees(s);
+  reconcileBattleRoster(s);
   return p;
 }
 

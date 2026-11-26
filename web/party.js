@@ -1,11 +1,12 @@
-import {GAMES,GAME_IDS,CIRCLE} from './games.js';
+import {GAMES,GAME_IDS,BATTLE,CIRCLE} from './games.js';
 import {button,el} from './board.js';
 
 export function gameCard(id) {
   const game = GAMES[id];
-  const artwork = el('span','game-art '+(id===CIRCLE?'circle-art':'tier-art'));
+  const artwork = el('span','game-art '+(id===BATTLE?'battle-art':id===CIRCLE?'circle-art':'tier-art'));
   artwork.setAttribute('aria-hidden','true');
   if (id===CIRCLE) artwork.append(el('b','circle','○'),el('b','cross','×'));
+  else if (id===BATTLE) artwork.append(el('b','', '⚡'),el('b','', '🛡'),el('b','', '💥'));
   else for (const rank of ['S','A','B','C','D']) artwork.append(el('b','',rank));
   return [artwork,el('strong','',game.title)];
 }

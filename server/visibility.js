@@ -1,15 +1,16 @@
-import {gameMembers, isOnline, members, playing, roundPlayers} from './room.js';
+import {battleRoster,gameMembers, isOnline, members, playing, roundPlayers} from './room.js';
 import {currentInput, lifeStatus, orderedCards} from './round.js';
 import {consensusProgress,consensusView} from './consensus.js';
 import {currentCardId} from './placement.js';
 import {judgeId} from './mode23.js';
-import {CIRCLE} from '../web/games.js';
+import {BATTLE,CIRCLE,TIER} from '../web/games.js';
 import {currentStartProblem} from './game.js';
 import {view as circleView} from './circle.js';
+import {battleView} from './battle.js';
 import {DEFAULTS,TIERS} from '../web/config.js';
 
 export function visible(s, id, now) {
-  const r = s.game === CIRCLE ? null : s.round;
+  const r = s.game === TIER ? s.round : null;
   const active = playing(s);
   const gameIds = active ? s.round.ids : gameMembers(s).map(p => p.id);
   const participant = Boolean(r?.ids.includes(id));
@@ -43,6 +44,14 @@ export function visible(s, id, now) {
   };
   if (s.game === CIRCLE && s.round) {
     state.round = circleView({...s.round,host:s.host},id);
+    return state;
+  }
+  if (s.game === BATTLE) {
+    state.battle = battleRoster(s);
+    if (s.round) {
+      state.round = battleView(s.round,id,roundPlayers(s,now));
+      if (!active) state.roundPlayers = roundPlayers(s,now);
+    }
     return state;
   }
   if (!r) return state;

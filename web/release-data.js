@@ -1,4 +1,4 @@
-import {CIRCLE,TIER} from './games.js';
+import {BATTLE,CIRCLE,TIER} from './games.js';
 import {VERSION} from './version.js';
 
 const legacyReleases = [
@@ -82,7 +82,12 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'ロビー・プレイヤー参加管理の改善',changes:[
+  {version:VERSION,title:'『名前の知らないあのゲーム』を追加',changes:[
+    {description:'溜める・ガード・単体攻撃・全体攻撃を使って、最後まで生き残ることを目指します。',gameIds:[BATTLE]},
+    {description:'2〜10人のバトルロイヤル、同人数のチーム戦、1対3のボス戦で遊べます。',gameIds:[BATTLE]},
+    {description:'全員が同時に行動を選び、サーバーがターンごとに攻撃・防御・相殺をまとめて判定します。',gameIds:[BATTLE]},
+  ]},
+  {version:'2.0.3',title:'ロビー・プレイヤー参加管理の改善',changes:[
     {description:'全員退出後は、次に入室した人がロビーから始められるようになりました。',gameIds:[]},
     {description:'ゲーム選択後も入室でき、開始前に参加枠が空くと観戦者が順番に参加できます。',gameIds:[]},
     {description:'対戦中に入室すると観戦でき、対戦終了後に次の参加枠が割り当てられます。',gameIds:[]},

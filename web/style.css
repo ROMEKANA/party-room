@@ -195,3 +195,51 @@ nav button{padding-inline:6px}
 .rules-dialog .modal-head button{flex-shrink:0}
 .rules-dialog .dialog-body{min-height:0;overflow:auto}
 .rules-dialog .circle-settings{grid-template-columns:minmax(0,1fr) minmax(0,2.2fr)}
+
+.battle-art{gap:4%;background:#233e38}
+.battle-art b{display:grid;place-items:center;width:24%;aspect-ratio:3/4;border-radius:10px;background:#d9ebce;font-size:clamp(23px,7vw,53px)}
+.battle-art b:nth-child(2){background:#d4e7f5;transform:translateY(-7%) rotate(-5deg)}
+.battle-art b:nth-child(3){background:#f4d7be;transform:rotate(7deg)}
+.battle-mode-settings,.battle-team-setup{display:grid;align-content:start;gap:5px;min-width:0}
+.battle-team-setup{border:1px solid #dce3d4;border-radius:10px;padding:6px;background:var(--battle-bg)}
+.battle-pink{--battle-bg:#f9e1eb}.battle-blue,.battle-party{--battle-bg:#e0f2fa}.battle-boss{--battle-bg:#ede5fa}
+.battle-team-members{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}
+.battle-team-person{display:grid;justify-items:center;gap:2px;min-width:0;border:1px solid transparent;background:transparent;padding:2px;border-radius:7px}
+.battle-team-person[aria-pressed=true]{border-color:#286950;background:#fff}
+.battle-team-person .avatar{width:24px;height:24px}
+.battle-team-name{font-size:11px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.battle-screen{gap:clamp(3px,.85dvh,8px)}
+.battle-screen .party-title{font-size:clamp(13px,3.8vw,20px)}
+.battle-turn{display:grid;gap:4px;flex:none}
+.battle-turn-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}
+.battle-turn-heading strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.battle-clock{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums;color:#536757}
+.battle-clock-track{height:5px}
+.battle-clock-bar{height:100%;background:#587950;transform-origin:left}
+.battle-cards{flex:1;min-height:0;display:flex;flex-direction:column;gap:4px}
+.battle-card-row{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--battle-columns),minmax(0,1fr));gap:4px}
+.battle-card{display:grid;align-content:safe center;gap:1px;min-width:0;min-height:0;overflow:hidden;padding:2px 5px;border:1px solid #d6dfd1;border-radius:8px;background:var(--battle-bg,#fff);text-align:left;color:#293f38;font-size:clamp(10px,1.7dvh,13px);line-height:1.04}
+.battle-card:disabled{opacity:1}
+.battle-self{border:2px solid #486e58;padding:1px 4px}
+.battle-out{background:#e2e4e2;color:#525852}
+.battle-target{outline:2px solid #26785c;outline-offset:-3px;cursor:pointer;box-shadow:inset 0 0 0 4px #b8ddcd}
+.battle-identity{display:flex;align-items:baseline;min-width:0;gap:3px}
+.battle-name,.battle-turn-action,.battle-turn-result{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.battle-name{flex:1;font-size:clamp(11px,1.9dvh,15px)}
+.battle-card-status,.battle-last-icon,.battle-turn-action,.battle-turn-result{font-size:clamp(9px,1.5dvh,12px)}
+.battle-card-status{color:#536757;white-space:nowrap}
+.battle-stat{display:grid;grid-template-columns:3.45em minmax(0,1fr);align-items:center;gap:2px}
+.battle-number{font-variant-numeric:tabular-nums;white-space:nowrap}
+.battle-stat-track{height:4px;border-radius:4px;overflow:hidden;background:#0002}
+.battle-stat-bar{display:block;height:100%;background:#b54552}
+.battle-energy .battle-stat-bar{background:#ab7d13}
+.battle-controls{flex:none;display:grid;gap:3px}
+.battle-input-status{margin:0;min-height:1.15em;text-align:center;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.battle-actions{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
+.battle-action{grid-column:span 2;min-height:clamp(31px,6.3dvh,45px);padding:2px 3px;line-height:1.1;overflow-wrap:anywhere}
+.battle-action small{margin-left:4px;white-space:nowrap;font-size:.82em}
+.battle-actions-4 .battle-action,.battle-actions-5 .battle-action:nth-child(n+4){grid-column:span 3}
+.battle-action[aria-pressed=true]{outline:2px solid #293f38;outline-offset:-2px}
+.battle-action-charge{background:#d9ebce}.battle-action-guard{background:#d9e4f8}.battle-action-strike{background:#f7ddbd}
+.battle-action-sweep{background:#f6d0cb}.battle-action-cover{background:#dbf0f5}.battle-action-give{background:#f7ebbc}
+.battle-history .battle-card{min-height:62px}
