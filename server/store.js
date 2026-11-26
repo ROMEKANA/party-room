@@ -1,6 +1,5 @@
-import {GameError,initialRoom,prepareRoom} from './room.js';
+import {GameError,initialRoom,playing,prepareRoom} from './room.js';
 import {deleteExpired,snapshot,resetHistory} from './history.js';
-import {playing} from './game.js';
 
 export async function update(db, change, now) {
   const session = typeof db.withSession === 'function' ? db.withSession('first-primary') : db;

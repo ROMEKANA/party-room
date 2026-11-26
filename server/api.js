@@ -1,6 +1,6 @@
-import {action,checkScope,playing} from './game.js';
+import {action,checkScope} from './game.js';
 import {readHistory} from './history.js';
-import {GameError, HEARTBEAT_MS, connected, join, reconcile, requireGame} from './room.js';
+import {GameError, HEARTBEAT_MS, connected, isExpired, join, playing, reconcile, requireGame} from './room.js';
 import {update} from './store.js';
 import {GAME_IDS} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
@@ -31,14 +31,13 @@ export async function api(request, db, now = Date.now()) {
     const a = isAction ? await body(request) : null;
     const token = request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9-]{36})$/i)?.[1];
     requireGame(token,'名前を入力して参加してください。',401,'disconnected');
-    let id, heartbeat;
+    let id;
     const updated = await update(db,s => {
-      const p = s.players.find(person => person.token === token && !person.left);
-      requireGame(p,'同名での再接続、または退出により接続が終了しました。',401,'disconnected');
-      id = p.id;
-      heartbeat = p.seen + HEARTBEAT_MS <= now;
-      if (heartbeat || isAction) p.seen = Math.max(p.seen,now);
+      const p = s.players.find(person => person.token === token && !person.left && !isExpired(person,now));
+      if (p && (isAction || p.seen + HEARTBEAT_MS <= now)) p.seen = Math.max(p.seen,now);
       reconcile(s,now);
+      if (!p) return {disconnected:true};
+      id = p.id;
       if (isAction) {
         requireGame(typeof a.id === 'string' && /^[a-f0-9-]{36}$/i.test(a.id),'操作IDが無効です。',400);
         if (!p.last.includes(a.id)) {
@@ -57,6 +56,7 @@ export async function api(request, db, now = Date.now()) {
         }
       }
     },now);
+    requireGame(!updated.result?.disconnected,'同名での再接続、または退出により接続が終了しました。',401,'disconnected');
     if (isHistory) {
       const {state,revision} = updated;
       const game = searchParams.get('game');

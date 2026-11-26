@@ -121,6 +121,7 @@ function render() {
     return;
   }
   const s = state;
+  const watching = s.players.find(p=>p.id===s.me)?.spectator;
   if (!tierBoard) {
     const key = JSON.stringify(s);
     if (key !== lastScreen) {
@@ -133,7 +134,10 @@ function render() {
       if (!s.game) lobby(root,s,send,(...args)=>panel.open(...args));
       else {
         const host = s.me===s.host;
-        root.append(el('h1','party-title',GAMES[s.game].title));
+        const title = el('h1','party-title',GAMES[s.game].title);
+        if (watching) title.append(el('span','spectator-status','観戦中'));
+        root.append(title);
+        if (watching && !r) root.append(el('p','deck-message','空きができると順番に参加します。'));
         if (r) circlePlay(root,r,send,host);
         else if (s.game===CIRCLE) circleSettings(root,s);
         else {
@@ -177,7 +181,7 @@ function render() {
         render();
         $('players').querySelector('[aria-pressed=true]')?.focus({preventScroll:true});
       });
-    } else avatars(s);
+    } else avatars(s.roundPlayers ? {...s,players:s.roundPlayers} : s);
     board(consensusResult ? {...s,round:{...r,cards:consensusBoard(r,resultPlayer)}} : s,card=>{
       const live = state.round;
       if (live?.mode===2 && live.canPlace && live.cards.some(c=>c.id===card.id&&c.placed)) {
@@ -206,7 +210,6 @@ function render() {
       $('progress-bar').style.width = '0%';
     }
     showLife(r,$('life'));
-    const watching = s.players.find(p=>p.id===s.me)?.spectator;
     $('phase-label').textContent = (watching?'観戦中 · ':'')+({
       topic:'お題決め',input:'カード入力',placement:'Tierを選択',vote:'投票中',
       turnResult:'カード判定',attemptResult:'回答判定',oral:'お題の推理',result:'ラウンド結果',

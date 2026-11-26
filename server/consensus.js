@@ -55,7 +55,7 @@ export function consensusCards(r) {
   return r.displayOrder.map(id => cards.get(id));
 }
 
-export function consensusView(r, id, input, players) {
+export function consensusView(r, id, input) {
   const view = {
     id:r.id, version:r.version, mode:r.mode, phase:r.phase, setter:r.setter, topic:r.topic,
     total:r.cards.length, cards:[], ...(r.phase === 'topic' && id === r.setter ? {candidate:r.candidate} : {}),
@@ -90,7 +90,7 @@ export function consensusView(r, id, input, players) {
   } else if (r.phase === 'result') {
     view.cards = consensusCards(r).map(({id,word,owner,answer}) => ({id,word,owner,answer}));
     view.result = r.result;
-    view.players = r.ids.map(id => ({id,color:players.find(player => player.id === id)?.color}));
+    view.players = r.ids.map((id,index) => ({id,color:r.colors[index]}));
   }
   return view;
 }

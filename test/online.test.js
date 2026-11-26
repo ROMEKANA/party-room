@@ -5,6 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../dist/server/index.js';
 import {releaseEntries} from '../web/release-data.js';
 import {VERSION} from '../web/version.js';
+import {GAMES} from '../web/games.js';
 import {api} from '../server/api.js';
 import {shuffle} from '../server/draw.js';
 
@@ -578,11 +579,12 @@ test('history omits unfinished rounds, expires after 30 minutes, and is deleted 
   await host.send('end');
   assert.deepEqual((await host.history()).record.map(record=>record.id),[id]);
   h.advance(30*60*1000-1);
-  assert.equal((await host.history(id)).status,200);
+  const next = await h.join('新しい参加者');
+  assert.equal((await next.history(id)).status,200);
   h.advance(1);
-  await (await h.join('新しい参加者')).get();
+  await next.history();
   assert.equal(await h.db.prepare('SELECT * FROM round_history').first(),null);
-  assert.equal((await host.history(id)).status,404);
+  assert.equal((await next.history(id)).status,404);
 });
 
 test('mode 2 appends a repositioned card to the end of the target tier in play and history',async()=>{
@@ -956,10 +958,6 @@ test('Circle & Cross keeps hosted rules and hand privacy through takeover and st
   let guest=await h.join('guest');
   await host.send('browse',{choice:'circle-cross'});
   await host.send('choose',{choice:'circle-cross'});
-  for (let i=0;i<5;i++) await h.join('extra'+i);
-  assert.match((await host.state()).startProblem,/6人まで/);
-  assert.equal((await host.send('start')).status,409);
-  for (let i=0;i<5;i++) await host.send('kick',{player:'extra'+i});
   assert.equal((await host.send('start')).status,200);
   assert.equal((await host.send('settings',{settings:{mode:2}})).status,409);
   const initial=(await host.state()).round;
@@ -1018,6 +1016,222 @@ test('Circle & Cross keeps hosted rules and hand privacy through takeover and st
   assert.deepEqual((await guest.history()).record,[]);
 });
 
+const seats = s => s.players.filter(p=>!p.spectator).map(p=>p.id);
+const watchers = s => s.players.filter(p=>p.spectator).map(p=>p.id);
+
+test('Circle & Cross reserves six ordered seats and keeps ten room members including observers', async()=>{
+  const h = harness();
+  const A = await h.join('A');
+  await A.send('browse',{choice:'circle-cross'});
+  await A.send('choose',{choice:'circle-cross'});
+  const [B,C,D,E,F,G,H,I,J] = await Promise.all([...'BCDEFGHIJ'].map(id=>h.join(id)));
+  const roster = [A,B,C,D,E,F,G,H,I,J];
+  const initial = await A.state();
+  const order = initial.players.map(p=>p.id);
+  assert.equal(order.length,10);
+  assert.deepEqual(seats(initial),order.slice(0,6));
+  assert.deepEqual(watchers(initial),order.slice(6));
+  assert.equal(initial.startProblem,'');
+  assert.equal((await h.join('K')).code,'full');
+
+  const [disconnected,leaver] = order.slice(1,3).map(id=>roster.find(p=>p.name===id));
+  const keepalive = roster.filter(p=>p!==disconnected);
+  for (let i=0;i<3;i++) {
+    h.advance(12_000);
+    await Promise.all(keepalive.map(p=>p.get()));
+  }
+  const inGrace = await A.state();
+  assert.equal(inGrace.players.find(p=>p.id===disconnected.name).online,false);
+  assert.deepEqual(seats(inGrace),order.slice(0,6));
+  const restored = await h.join(disconnected.name);
+  assert.equal((await disconnected.get()).status,401);
+  assert.deepEqual(seats(await A.state()),order.slice(0,6));
+
+  await Promise.all([restored.send('leave'),leaver.send('leave')]);
+  const remaining = order.filter(id=>id!==restored.name && id!==leaver.name);
+  assert.deepEqual(seats(await A.state()),remaining.slice(0,6));
+  assert.deepEqual(watchers(await A.state()),remaining.slice(6));
+
+  const observingHost = roster.find(p=>p.name===remaining[6]);
+  assert.equal((await A.send('transfer',{player:observingHost.name})).status,200);
+  assert.equal((await observingHost.send('shuffle')).status,200);
+  const shuffled = await observingHost.state();
+  const shuffledIds = shuffled.players.map(p=>p.id);
+  assert.deepEqual(seats(shuffled),shuffledIds.slice(0,6));
+  assert.deepEqual(watchers(shuffled),shuffledIds.slice(6));
+  assert.equal((await observingHost.send('lobby')).status,200);
+  assert.deepEqual(watchers(await A.state()),[]);
+  await observingHost.send('browse',{choice:'tier'});
+  await observingHost.send('choose',{choice:'tier'});
+  assert.deepEqual(seats(await A.state()),shuffledIds);
+});
+
+test('the selected mode can supply its own seat limit to shared room management',async()=>{
+  const h = harness();
+  const [a,b,c] = await Promise.all([...'ABC'].map(id=>h.join(id)));
+  const host = [a,b,c].find(p=>p.name===h.raw().host);
+  await host.send('choose',{choice:'tier'});
+  const order = (await host.state()).players.map(p=>p.id);
+  GAMES.tier.modeMax = {3:2};
+  try {
+    await host.send('settings',{settings:{mode:3,difficulty:'easy'}});
+    assert.deepEqual(watchers(await host.state()),order.slice(2));
+    assert.equal((await host.send('start')).status,200);
+    assert.deepEqual(h.raw().round.ids,order.slice(0,2));
+    await host.send('end');
+    await host.send('settings',{settings:{mode:1}});
+    assert.deepEqual(seats(await host.state()),order);
+  } finally {
+    delete GAMES.tier.modeMax;
+  }
+});
+
+test('expired room seats are freed during play, without changing the match, and can be reclaimed by name',async()=>{
+  const h = harness();
+  const A = await h.join('A'), B = await h.join('B');
+  await A.send('browse',{choice:'circle-cross'});
+  await A.send('choose',{choice:'circle-cross'});
+  await A.send('start');
+  const C = await h.join('C');
+  const match = h.raw().round;
+  assert.deepEqual(watchers(await C.state()),['C']);
+  assert.deepEqual((await C.state()).round.players.map(p=>p.cards),[null,null]);
+  for (const type of ['place','bid','pass','reveal','lose','next']) {
+    assert.equal((await C.send(type,{card:0,value:1,target:0})).status,409);
+  }
+  for (let i=0;i<4;i++) {
+    h.advance(12_000);
+    await Promise.all([A.get(),C.get()]);
+  }
+  assert.equal((await B.get()).status,401);
+  assert.deepEqual((await A.state()).players.map(p=>p.id),['A','C']);
+  assert.deepEqual(h.raw().round,match);
+
+  const newcomers = await Promise.all([...'DEFGHIJK'].map(id=>h.join(id)));
+  assert.ok(newcomers.every(p=>p.token));
+  assert.equal((await h.join('B')).code,'full');
+  await newcomers[0].send('leave');
+  const returned = await h.join('B');
+  assert.deepEqual((await returned.state()).round.players.map(p=>p.cards),[null,['○','○','○','×']]);
+  assert.equal((await B.get()).status,401);
+  assert.deepEqual(h.raw().round,match);
+  assert.equal(new Set((await A.state()).players.map(p=>p.color)).size,10);
+});
+
+test('observers fill the next match while the finished roster and history stay fixed',async()=>{
+  const {h,host,parent,players,setter}=await round(3,{nominatedSetter:'host'});
+  const watcher = await h.join('watcher');
+  await setter.send('topic',{word:'未公開のお題'});
+  for (const player of Object.values(players).filter(p=>p!==parent)) {
+    for (let i=0;i<2;i++) {
+      const {input} = (await player.state()).round;
+      await player.send('word',{card:input.id,word:player.name+i});
+    }
+  }
+  const watching = await watcher.state();
+  assert.equal(watching.round.topic,null);
+  assert.equal(watching.round.input,null);
+  assert.ok(watching.round.cards.every(c=>!Object.hasOwn(c,'owner') && !Object.hasOwn(c,'answer')));
+  assert.equal((await watcher.send('judge',{win:true})).status,409);
+  await parent.send('leave');
+  assert.deepEqual(watchers(await watcher.state()),['watcher']);
+  await setter.send('judge',{win:true});
+  const final = await watcher.state();
+  const saved = (await watcher.history(final.round.id)).record;
+  assert.deepEqual(seats(final),['host','c','watcher']);
+  assert.deepEqual(final.roundPlayers.map(p=>p.id),['host','b','c']);
+  assert.deepEqual(saved.players.map(p=>p.id),['host','b','c']);
+  assert.equal((await host.send('start')).status,200);
+  assert.deepEqual(h.raw().round.ids,['host','c','watcher']);
+  assert.deepEqual((await watcher.history(final.round.id)).record,saved);
+});
+
+test('the last departure clears setup, active games and results but keeps saved settings and results',async()=>{
+  for (const phase of ['setup','active','result']) {
+    const h = harness();
+    const A = await h.join('A'), B = await h.join('B');
+    await A.send('choose',{choice:'tier'});
+    await A.send('settings',{settings:{mode:3,difficulty:'easy',cardsPerPlayer:3,nominatedSetter:'A'}});
+    await A.send('commonSettings',{minutes:300});
+    if (phase!=='setup') await A.send('start');
+    if (phase==='result') {
+      await A.send('topic',{word:'履歴を保持'});
+      for (let i=0;i<3;i++) {
+        const {input} = (await A.state()).round;
+        await A.send('word',{card:input.id,word:'カード'+i});
+      }
+      await A.send('judge',{win:true});
+    }
+    const V = await h.join('V');
+    await Promise.all([A.send('leave'),B.send('leave')]);
+    assert.equal((await V.state()).game,'tier');
+    assert.equal((await V.state()).playing,phase==='active');
+    await V.send('leave');
+    const [X,Y] = await Promise.all([h.join('X'),h.join('Y')]);
+    for (const player of [X,Y]) {
+      const state = await player.state();
+      assert.equal(state.game,null);
+      assert.equal(state.selectedGame,'tier');
+      assert.equal(state.round,null);
+      assert.equal(state.common.historyMinutes,300);
+      assert.equal(state.settings.cardsPerPlayer,3);
+      assert.equal(state.settings.mode,3);
+      assert.deepEqual(watchers(state),[]);
+      assert.equal((await player.history()).record.length,phase==='result'?1:0);
+    }
+    assert.equal(h.raw().host,h.raw().players[0].id);
+  }
+});
+
+test('next join resets an unattended match only after the last reconnection grace expires',async()=>{
+  const h = harness();
+  const A = await h.join('A'), B = await h.join('B');
+  await A.send('browse',{choice:'circle-cross'});
+  await A.send('choose',{choice:'circle-cross'});
+  await A.send('start');
+  const oldRound = h.raw().round.id;
+  h.advance(44_999);
+  const V = await h.join('V');
+  assert.equal((await V.state()).round.id,oldRound);
+  assert.deepEqual(watchers(await V.state()),['V']);
+  assert.ok((await V.state()).players.filter(p=>p.id!=='V').every(p=>!p.online));
+  await V.send('leave');
+  h.advance(1);
+  const [X,Y] = await Promise.all([h.join('X'),h.join('Y')]);
+  const state = await Y.state();
+  assert.equal(state.game,null);
+  assert.equal(state.round,null);
+  assert.equal(state.host,h.raw().players[0].id);
+  assert.equal((await X.history()).record.length,0);
+  const delayed = await h.req('action',{type:'place',id:crypto.randomUUID(),scope:oldRound,game:'circle-cross',
+    round:oldRound,version:0,card:0},B.token);
+  assert.equal(delayed.status,401);
+});
+
+test('concurrent start, arrival and departure use one committed roster with at most six seats',async()=>{
+  for (let attempt=0;attempt<8;attempt++) {
+    const h = harness();
+    const host = await h.join('host');
+    await host.send('browse',{choice:'circle-cross'});
+    await host.send('choose',{choice:'circle-cross'});
+    const players = await Promise.all([...'BCDEFG'].map(id=>h.join(id)));
+    const s = await host.state();
+    const payload = {type:'start',id:crypto.randomUUID(),scope:s.scope,game:s.game,round:null,version:0};
+    const [start,entrant,departure] = await Promise.all([
+      h.req('action',payload,host.token), h.join('H'),
+      h.req('action',{...payload,type:'leave',id:crypto.randomUUID()},players[0].token),
+    ]);
+    assert.equal(start.status,200);
+    assert.ok(entrant.token);
+    assert.ok([200,409].includes(departure.status));
+    const frozen = h.raw().round.ids;
+    assert.equal(frozen.length,6);
+    assert.equal(new Set(frozen).size,6);
+    assert.ok(!frozen.includes('H'));
+    assert.deepEqual(frozen,s.players.map(p=>p.id).filter(id=>id!==players[0].name || frozen.includes(id)).slice(0,6));
+  }
+});
+
 test('published version, reduced state responses, and previously stored room and history are compatible',async()=>{
   const h=harness();
   assert.equal((await h.req('version')).version,VERSION);
@@ -1054,19 +1268,21 @@ test('published version, reduced state responses, and previously stored room and
     .run(summary.id,summary.endedAt,JSON.stringify(summary),JSON.stringify(summary));
   assert.equal((await host.history(summary.id)).record.gameId,'tier');
   h.advance(31*60_000);
-  assert.equal((await host.history(summary.id)).status,200);
-  assert.equal((await host.send('commonSettings',{minutes:30})).status,200);
-  assert.equal((await host.history(summary.id)).status,404);
+  const next = await h.join('next');
+  assert.equal((await next.history(summary.id)).status,200);
+  assert.equal((await next.send('commonSettings',{minutes:30})).status,200);
+  assert.equal((await next.history(summary.id)).status,404);
 });
 
 test('update information keeps every past release and filters shared changes by game',()=>{
   const all = releaseEntries();
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
-  assert.deepEqual(tier.map(entry=>entry.version),all.map(entry=>entry.version));
-  assert.deepEqual(circle.map(entry=>entry.version),[VERSION,'2.0.0']);
+  assert.deepEqual(tier.map(entry=>entry.version),all.slice(1).map(entry=>entry.version));
+  assert.deepEqual(circle.map(entry=>entry.version),['2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.equal(tier[0].version,VERSION);
+  assert.ok(all[0].changes.every(change=>change.gameIds.length===0));
+  assert.equal(tier[0].version,'2.0.2');
   assert.equal(tier[1].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
   const shared = previous.changes.find(change=>change.gameIds.includes('circle-cross'));

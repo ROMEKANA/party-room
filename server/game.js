@@ -1,28 +1,30 @@
-import {alignRoles, connected, leave, moveRolesFirst, requireGame, settingsFor} from './room.js';
+import {alignRoles, connected, gameMembers, isOnline, leave, members, moveRolesFirst, playing, requireGame, settingsFor} from './room.js';
 import {start, topicAction} from './round.js';
 import {mode1} from './mode1.js';
 import {consensus} from './consensus.js';
 import {mode23} from './mode23.js';
 import {act as circleAction,startCircle} from './circle.js';
 import {shuffle} from './draw.js';
-import {hasParent} from '../web/config.js';
+import {hasParent,startProblem} from '../web/config.js';
 import {CIRCLE,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
 
-export const playing = s => Boolean(s.round && s.round.phase !== (s.game === CIRCLE ? 'finished' : 'result'));
-export function circleStartProblem(s,now) {
-  const count = connected(s,now).length;
-  const {min,max} = GAMES[CIRCLE];
-  return count < min ? `開始には接続中のプレイヤーが${min}人以上必要です。` :
-    count > max ? `Circle & Crossは${max}人まで遊べます。` : '';
+const readyPlayers = (s,now) => gameMembers(s).filter(p => isOnline(p,now));
+
+function gameStartProblem(s, players) {
+  if (s.game === TIER) return startProblem(s.settings,players.length);
+  const min = GAMES[s.game]?.min;
+  return players.length < min ? `開始には接続中のプレイヤーが${min}人以上必要です。` : '';
 }
+
+export const currentStartProblem = (s,now) => gameStartProblem(s,readyPlayers(s,now));
 
 function changeScreen(s,game) {
   s.game = game;
   s.scope = crypto.randomUUID();
   s.legacyRound = null;
   s.round = null;
-  s.players = s.players.filter(person => !person.left);
+  s.players = members(s);
   alignRoles(s);
 }
 
@@ -83,16 +85,19 @@ export function action(s, p, a, now, clientVersion) {
     alignRoles(s);
   } else if (a.type === 'start') {
     requireGame(host && s.game && !playing(s), '開始できるのは待機中か結果画面のホストです。');
-    if (s.game === CIRCLE) {
-      const issue = circleStartProblem(s,now);
-      requireGame(!issue,issue);
-      s.players = s.players.filter(person=>!person.left);
-      s.round = startCircle(connected(s,now).map(person=>person.id),s.host);
-    } else start(s,now);
+    const players = readyPlayers(s,now);
+    const issue = gameStartProblem(s,players);
+    requireGame(!issue,issue);
+    const ids = players.map(p => p.id);
+    s.players = members(s);
+    if (s.game === CIRCLE) s.round = startCircle(ids,s.host);
+    else start(s,ids);
+    s.round.colors = players.map(p => p.color);
     s.scope = s.round.id;
     s.legacyRound = null;
   } else if (s.game === CIRCLE) {
     requireGame(r && r.phase !== 'finished','次の対戦をお待ちください。');
+    requireGame(r.ids.includes(p.id) || (host && a.type === 'next'), '観戦中はこの操作ができません。');
     r.host = s.host;
     requireGame(['place','bid','pass','reveal','lose','next'].includes(a.type),'不明な操作です。',400);
     actCircle(r,p.id,a);

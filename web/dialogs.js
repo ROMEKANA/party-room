@@ -183,7 +183,7 @@ export function dialogs(getState,send,loadHistory) {
       stablePanels.includes(kind) ? null : r?.version,r?.input?.id,
       ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.left]):null]:null,
-      ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null,
+      ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online,p.spectator]),r?.phase]:null,
       kind==='gameList'?[s?.selectedGame,s?.host]:null,
       kind==='commonSettings'?[s?.common,s?.host]:null]);
     if (!force && key===lastKey) return;
@@ -471,7 +471,7 @@ export function dialogs(getState,send,loadHistory) {
     } else if (kind==='playerManagement') {
       const players = el('div','member-grid');
       for (const p of s.players.filter(p=>!p.left)) {
-        const control = button(short(p.id)+(p.id===s.host?' 👑':''),()=>open('player',{id:p.id}));
+        const control = button(short(p.id)+(p.id===s.host?' 👑':'')+(p.spectator?' · 観戦':''),()=>open('player',{id:p.id}));
         control.disabled = s.host!==s.me || !p.online || p.id===s.me;
         players.append(control);
       }

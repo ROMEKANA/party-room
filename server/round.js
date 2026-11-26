@@ -1,6 +1,6 @@
-import {TIERS, hasParent, rightNeighbor, startProblem, totalCards} from '../web/config.js';
+import {TIERS, hasParent, rightNeighbor, totalCards} from '../web/config.js';
 import {draw, shuffle} from './draw.js';
-import {alignRoles, connected, requireGame} from './room.js';
+import {requireGame} from './room.js';
 import {randomTopic} from './topics.js';
 
 function rotate(s, key, ids) {
@@ -20,13 +20,8 @@ export function phase(r, value) {
   r.phase = value;
   r.version++;
 }
-export function start(s, now) {
-  s.players = s.players.filter(p => !p.left);
-  alignRoles(s);
+export function start(s, ids) {
   const settings = {...s.settings};
-  const ids = connected(s, now).map(p => p.id);
-  const issue = startProblem(settings, ids.length);
-  requireGame(!issue, issue);
   const {mode} = settings;
   let setter, parent = null;
   if (!hasParent(mode)) {

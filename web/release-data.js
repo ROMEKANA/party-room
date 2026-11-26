@@ -82,7 +82,12 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'ロビーからルールを確認',changes:[
+  {version:VERSION,title:'ロビー・プレイヤー参加管理の改善',changes:[
+    {description:'全員退出後は、次に入室した人がロビーから始められるようになりました。',gameIds:[]},
+    {description:'ゲーム選択後も入室でき、開始前に参加枠が空くと観戦者が順番に参加できます。',gameIds:[]},
+    {description:'対戦中に入室すると観戦でき、対戦終了後に次の参加枠が割り当てられます。',gameIds:[]},
+  ]},
+  {version:'2.0.2',title:'ロビーからルールを確認',changes:[
     {description:'ロビーのメニューから、ゲーム一覧と同じカード表示で遊び方を選べるようになりました。',gameIds:[TIER,CIRCLE]},
     {description:'ホストがゲームとロビーを切り替えても、ゲストが開いているルールや対戦履歴はそのまま表示されます。',gameIds:[TIER,CIRCLE]},
   ]},

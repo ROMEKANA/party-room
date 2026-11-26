@@ -66,8 +66,7 @@ export function circlePlay(root,g,send,host) {
     actions.append(el('p','',g.outcome==='success'?'○ 挑戦成功':'× 挑戦失敗'));
     if (host || g.players[g.bidder]?.me) actions.append(button('次のラウンドへ',()=>send('next'),'primary'));
   } else {
-    const turn = el('p','',me ? (mine?'あなたの番':g.players[g.turn]?.name+'さんの番') : '観戦中');
-    actions.append(turn);
+    actions.append(el('p','',mine?'あなたの番':g.players[g.turn]?.name+'さんの番'));
     if (me?.cards?.length) {
       const hand = el('div','circle-hand');
       const losing = g.phase==='loss' && g.players[g.bidder]?.me;

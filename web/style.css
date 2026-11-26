@@ -166,6 +166,7 @@ nav button{padding-inline:6px}
 .game-card[aria-pressed=true]{background:#dce9d9;border-color:#6c8c70}
 .game-card:disabled{opacity:.8}
 .party-title{text-align:center;font-size:clamp(18px,5vw,28px)}
+.spectator-status{margin-inline-start:.6em;font-size:.75rem;font-weight:600;color:#526454;white-space:nowrap}
 .setup-screen{justify-content:center;overflow:auto}
 .setup-fields{display:grid;align-content:start;gap:6px;border:1px solid #dce3d4;border-radius:12px;background:#f8f8f2;padding:8px}
 .setup-heading{font-size:15px;margin:0 0 4px}.setup-fields .setting-row{grid-template-columns:minmax(0,1fr);gap:2px;font-size:13px}

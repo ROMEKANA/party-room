@@ -24,10 +24,7 @@ export function snapshot(s, now) {
     return {summary,detail:{...summary,board}};
   }
   const scores = r.scores;
-  const players = r.ids.map(id => {
-    const player = s.players.find(p => p.id === id);
-    return {id,color:player.color,...(scores ? {score:scores[id]} : {})};
-  });
+  const players = r.ids.map((id,index) => ({id,color:r.colors[index],...(scores ? {score:scores[id]} : {})}));
   const summary = {
     ...header, topic:r.topic, mode:r.mode, win:r.result.win,
     difficulty:r.settings.difficulty, cardsPerPlayer:r.settings.cardsPerPlayer,

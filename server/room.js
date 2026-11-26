@@ -1,9 +1,10 @@
 import {DEFAULTS,hasParent,rightNeighbor} from '../web/config.js';
-import {DEFAULT_HISTORY_MINUTES,TIER} from '../web/games.js';
+import {CIRCLE,DEFAULT_HISTORY_MINUTES,GAMES,TIER} from '../web/games.js';
 import {randomTopic} from './topics.js';
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
 export const HEARTBEAT_MS = 6_000;
+const ROOM_MAX = 10;
 export const initialRoom = () => ({
   settings:{...DEFAULTS}, players:[], host:null, round:null,
   game:null, selectedGame:TIER, scope:null, common:{historyMinutes:DEFAULT_HISTORY_MINUTES},
@@ -18,6 +19,9 @@ export function prepareRoom(s) {
   }
   s.settings = {...DEFAULTS,...s.settings};
   s.common ??= {historyMinutes:DEFAULT_HISTORY_MINUTES};
+  if (s.round && !s.round.colors) {
+    s.round.colors = s.round.ids.map(id => s.players.find(p => p.id === id)?.color ?? 0);
+  }
 }
 function resetEmpty(s) {
   const settings = {...s.settings,nominatedParent:null,nominatedMode1Setter:null,nominatedSetter:null};
@@ -44,7 +48,21 @@ function validNominees(ids, {setter, parent, nonParentSetter}) {
     nonParentSetter: ids.includes(nonParentSetter) ? nonParentSetter : null,
   };
 }
-const memberIds = s => s.players.filter(p => !p.left).map(p => p.id);
+export const members = s => s.players.filter(p => !p.left);
+const memberIds = s => members(s).map(p => p.id);
+export const playing = s => Boolean(s.round && s.round.phase !== (s.game === CIRCLE ? 'finished' : 'result'));
+
+export function gameMembers(s) {
+  const game = GAMES[s.game];
+  if (!game) return [];
+  return members(s).slice(0,game.modeMax?.[s.settings.mode] ?? game.max);
+}
+
+export function roundPlayers(s, now) {
+  return s.round.ids.map((id,index) => ({
+    id, color:s.round.colors[index], online:isOnline(s.players.find(p => p.id === id),now),
+  }));
+}
 const currentNominees = settings => ({
   parent:settings.nominatedParent, setter:settings.nominatedSetter,
   nonParentSetter:settings.nominatedMode1Setter,
@@ -74,50 +92,70 @@ function reconcileNominees(s) {
   for (const [mode,entry] of Object.entries(s.nominees ?? {})) {
     s.nominees[mode] = validNominees(ids,entry ?? {});
   }
-  if (!s.round) alignRoles(s);
+}
+
+export const isExpired = (p,now) => p.seen + ONLINE_MS + HOST_GRACE_MS <= now;
+function removeMember(s,p) {
+  p.left = true;
+  p.token = null;
+  // Keep a departed match participant available for same-name recovery and legacy match views.
+  if (!s.round?.ids.includes(p.id)) s.players = s.players.filter(person => person !== p);
 }
 
 export function reconcile(s, now) {
-  if (s.round?.phase === 'topic' && !s.round.candidate) s.round.candidate = randomTopic();
-  if (!s.round) s.players = s.players.filter(p => !p.left && p.seen + ONLINE_MS + HOST_GRACE_MS > now);
-  const host = s.players.find(p => p.id === s.host && !p.left);
-  if (!host || host.seen + ONLINE_MS + HOST_GRACE_MS <= now) {
-    s.host = connected(s, now)[0]?.id ?? null;
+  for (const p of members(s)) {
+    if (isExpired(p,now)) removeMember(s,p);
   }
-  if (!s.round && !s.players.length && (s.game || s.scope || s.selectedGame !== TIER)) resetEmpty(s);
+  if (!members(s).length) {
+    if (s.players.length || s.game || s.scope || s.round || s.host || s.selectedGame !== TIER) resetEmpty(s);
+    return;
+  }
+  if (!members(s).some(p => p.id === s.host)) s.host = connected(s,now)[0]?.id ?? null;
+  if (s.round?.phase === 'topic' && !s.round.candidate) s.round.candidate = randomTopic();
   reconcileNominees(s);
 }
+
 export function join(s, name, now, token) {
   const id = typeof name === 'string' ? name.trim().normalize('NFC') : '';
   requireGame(id && [...id].length <= 20 && !/[\p{Cc}]/u.test(id), '名前を1〜20文字で入力してください。', 400);
   let p = s.players.find(person => person.id === id);
-  if (p?.token && token === p.token && s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(id)) {
+  if (p?.token && token === p.token && s.round?.mode === 4 && playing(s) && s.round.ids.includes(id)) {
     p.seen = Math.max(p.seen,now);
     return p;
   }
-  if (!p) {
-    requireGame(s.players.length < 10, '満員です。同じ名前での復帰は可能です。', 409, 'full');
-    const used = new Set(s.players.map(person => person.color));
-    p = {id, color:Array.from({length:10}, (_,i) => i).find(i => !used.has(i))};
-    s.players.push(p);
+  const present = members(s);
+  if (!p || p.left) {
+    requireGame(present.length < ROOM_MAX, '満員です。同じ名前での復帰は可能です。', 409, 'full');
+    const used = new Set(present.map(person => person.color));
+    const free = Array.from({length:ROOM_MAX}, (_,i) => i).filter(color => !used.has(color));
+    const historical = new Set(s.players.map(person => person.color));
+    const color = p && free.includes(p.color) ? p.color : free.find(value => !historical.has(value)) ?? free[0];
+    if (!p || !playing(s)) {
+      s.players = s.players.filter(person => person !== p);
+      p = {id,color};
+      s.players.push(p);
+    } else p.color = color;
   }
   p.token = crypto.randomUUID();
-  p.seen = now;
+  p.seen = Math.max(p.seen ?? now,now);
   p.left = false;
   p.last = [];
   s.host ??= id;
   reconcileNominees(s);
   return p;
 }
+
 export function leave(s, p, now) {
-  p.left = true;
-  p.token = null;
-  if (s.host === p.id) s.host = connected(s, now)[0]?.id ?? null;
-  if (s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(p.id) &&
-      !s.round.drafts?.[s.round.ids.indexOf(p.id)]?.final) s.round = null;
-  if (!s.round?.ids.includes(p.id)) s.players = s.players.filter(person => person !== p);
-  if (s.players.every(person => person.left)) resetEmpty(s);
-  else reconcileNominees(s);
+  if (s.round?.mode === 4 && playing(s) && s.round.ids.includes(p.id) &&
+      !s.round.drafts?.[s.round.ids.indexOf(p.id)]?.final) {
+    s.round = null;
+    s.scope = crypto.randomUUID();
+    s.legacyRound = null;
+    s.players = members(s);
+  }
+  removeMember(s,p);
+  if (!members(s).length) resetEmpty(s);
+  else reconcile(s,now);
 }
 export function settingsFor(s, patch) {
   requireGame(patch && typeof patch === 'object' && !Array.isArray(patch), '設定が無効です。', 400);
