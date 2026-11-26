@@ -82,7 +82,11 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'お題担当と親の選び方を改善',changes:[
+  {version:VERSION,title:'ロビーからルールを確認',changes:[
+    {description:'ロビーのメニューから、ゲーム一覧と同じカード表示で遊び方を選べるようになりました。',gameIds:[TIER,CIRCLE]},
+    {description:'ホストがゲームとロビーを切り替えても、ゲストが開いているルールや対戦履歴はそのまま表示されます。',gameIds:[TIER,CIRCLE]},
+  ]},
+  {version:'2.0.1',title:'お題担当と親の選び方を改善',changes:[
     {description:'tier並び当てとtierお題当てでは、お題担当の右隣が次の親になります。親を指名し直すと、2人がプレイヤー順の先頭に並びます。',gameIds:[TIER]},
     {description:'お題担当と親を指定している場合、プレイヤー順をシャッフルしても2人の役割が保たれます。',gameIds:[TIER]},
     {description:'みんなでtier表と全員一致モードのお題担当の表示を「ランダム」に変更しました。',gameIds:[TIER]},

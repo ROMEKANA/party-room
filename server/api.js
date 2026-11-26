@@ -2,12 +2,13 @@ import {action,checkScope,playing} from './game.js';
 import {readHistory} from './history.js';
 import {GameError, HEARTBEAT_MS, connected, join, reconcile, requireGame} from './room.js';
 import {update} from './store.js';
+import {GAME_IDS} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
 import {visible} from './visibility.js';
 
 const json = (value,status = 200) => Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
 export async function api(request, db, now = Date.now()) {
-  const path = new URL(request.url).pathname;
+  const {pathname:path,searchParams} = new URL(request.url);
   const clientVersion = request.headers.get('X-App-Version');
   try {
     if (path === '/api/version' && request.method === 'GET') return json({version:VERSION});
@@ -58,7 +59,10 @@ export async function api(request, db, now = Date.now()) {
     },now);
     if (isHistory) {
       const {state,revision} = updated;
-      const record = await readHistory(db,now,history[1] ?? null,state.common.historyMinutes,state.game,revision);
+      const game = searchParams.get('game');
+      requireGame(game === null || game === 'all' || GAME_IDS.includes(game),'履歴の対象が無効です。',400);
+      const record = await readHistory(db,now,history[1] ?? null,state.common.historyMinutes,
+        game === 'all' ? null : game ?? state.game,revision);
       if (!record) return json({error:'この履歴は削除されたか、表示期限が過ぎました。',code:'historyExpired'},404);
       return json({at:now,record});
     }

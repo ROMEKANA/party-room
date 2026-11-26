@@ -12,7 +12,7 @@ import {dialogs,tierSettings} from './dialogs.js';
 let state = null, lastScreen = '', joining = false;
 let resultRound, resultPlayer;
 let ownBoardRound, ownCardsHidden = false;
-const panel = dialogs(()=>state,(...args)=>sync.send(...args),id=>sync.history(id));
+const panel = dialogs(()=>state,(...args)=>sync.send(...args),(id,game)=>sync.history(id,game));
 const sync = connect((next,previous) => {
   state = next;
   if (!previous || next.round?.id !== previous.round?.id || next.round?.version !== previous.round?.version ||

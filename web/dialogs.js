@@ -2,9 +2,8 @@ import {COLORS,DEFAULTS,MODES,hasParent,rightNeighbor} from './config.js';
 import {$,button,cardDescription,el,fit,short} from './board.js';
 import {consensusDetail} from './consensus.js';
 import {historyDetail,historyList} from './history.js';
-import {CIRCLE,HISTORY_MINUTES} from './games.js';
+import {CIRCLE,GAMES,GAME_IDS,HISTORY_MINUTES} from './games.js';
 import {CIRCLE_RULES,circleSettings} from './circle.js';
-import {GAME_IDS} from './games.js';
 import {gameCard} from './party.js';
 import {releaseHistory} from './releases.js';
 
@@ -16,7 +15,8 @@ export function dialogs(getState,send,loadHistory) {
   let acknowledgedTurn = sessionStorage.getItem(turnStorageKey);
   let historyTimer;
   const historyBoard = new ResizeObserver(entries=>entries.forEach(({target})=>fit(target)));
-  const stablePanels = ['settings','rules','menu','roundHistory','resetHistory','gameList','commonSettings','playerManagement'];
+  const readingPanels = ['rules','ruleList','roundHistory','releaseHistory'];
+  const stablePanels = ['settings','menu','resetHistory','gameList','commonSettings','playerManagement'];
   const refreshOnReturn = () => {
     if (!document.hidden && panel?.kind === 'roundHistory') refreshHistory(panel);
   };
@@ -27,7 +27,7 @@ export function dialogs(getState,send,loadHistory) {
     view.request = request;
     const id = view.selected;
     try {
-      const {at,record} = await loadHistory(id);
+      const {at,record} = await loadHistory(id,view.game);
       if (panel !== view || view.request !== request) return;
       view.error = '';
       if (id) view.record = record;
@@ -129,7 +129,7 @@ export function dialogs(getState,send,loadHistory) {
   function open(kind, data = {}) {
     clearTimeout(historyTimer);
     const s = getState(), r = s?.round;
-    panel = {kind,data,scope:s?.scope,round:r?.id,version:r?.version,draftRevision:r?.draftRevision};
+    panel = {kind,data,game:data.game ?? s?.game ?? null,scope:s?.scope,round:r?.id,version:r?.version,draftRevision:r?.draftRevision};
     tab = 0;
     problem = '';
     if (kind === 'roundHistory') {
@@ -155,15 +155,16 @@ export function dialogs(getState,send,loadHistory) {
   }
   function render(force = false) {
     const s = getState(), r = s?.round;
-    if (panel && panel.scope !== s?.scope && panel.kind !== 'releaseHistory') {
+    if (panel && panel.kind !== 'releaseHistory' && (!s ||
+        (panel.scope !== s.scope && !readingPanels.includes(panel.kind)))) {
       clearTimeout(historyTimer);
       panel = null;
     }
     const releasesOpen = panel?.kind === 'releaseHistory';
     if (panel && ['move','submit'].includes(panel.kind) &&
         panel.draftRevision !== r?.draftRevision) panel = null;
-    if (!releasesOpen && (!s || (panel && !stablePanels.includes(panel.kind) &&
-        (panel.round!==r?.id || panel.version!==r?.version)))) panel = null;
+    if (panel && !readingPanels.includes(panel.kind) && !stablePanels.includes(panel.kind) &&
+        (panel.round!==r?.id || panel.version!==r?.version)) panel = null;
     if (panel?.kind === 'roundHistory' && (panel.historyVersion !== s.historyVersion || panel.historyMinutes !== s.common.historyMinutes)) {
       panel.historyVersion = s.historyVersion;
       panel.historyMinutes = s.common.historyMinutes;
@@ -177,8 +178,9 @@ export function dialogs(getState,send,loadHistory) {
     peekButton.hidden = !canPeek;
     overlay.classList.toggle('has-peek',canPeek);
     const historyOpen = kind === 'roundHistory';
-    const key = releasesOpen ? JSON.stringify([kind,s?.game]) : JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
-      stablePanels.includes(kind) ? null : r?.version,historyOpen ? null : r?.input?.id,
+    const key = readingPanels.includes(kind) ? JSON.stringify([kind,active.game,active.data])
+      : JSON.stringify([kind,active?.data,r?.id,
+      stablePanels.includes(kind) ? null : r?.version,r?.input?.id,
       ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.left]):null]:null,
       ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null,
@@ -196,10 +198,11 @@ export function dialogs(getState,send,loadHistory) {
     dialog.classList.toggle('history-dialog',historyOpen);
     dialog.classList.toggle('history-detail',historyOpen && Boolean(active.selected));
     dialog.classList.toggle('release-dialog',releasesOpen);
+    dialog.classList.toggle('rules-dialog',kind==='rules');
     dialog.replaceChildren();
     if (!active) return;
     problem = '';
-    const titles = {releaseHistory:'アップデート情報',settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
+    const titles = {releaseHistory:'アップデート情報',settings:'ゲーム設定',rules:active.data?.fromList ? GAMES[active.game].title+'の遊び方' : '遊び方',ruleList:'ゲームルール',menu:'ルームメニュー',
       input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirmTurn:'あなたの番です',
       preview:'カード詳細',move:'カード詳細',ownCards:'自分の投稿',editWord:'投稿を修正',history:'誤答の詳細',roundHistory:active.record?(active.card && active.record.mode===4?'カード詳細':'履歴の結果'):'対戦履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
       submit:r?.mode===4?'最終確定':'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作',playerManagement:'プレイヤー管理',commonSettings:'共通設定',gameList:'ゲーム一覧',lobby:'ロビーに戻る',circleLog:'テーブルの記録'};
@@ -213,6 +216,9 @@ export function dialogs(getState,send,loadHistory) {
         render(true);
       }));
       else head.append(button('一覧に戻る',()=>backToHistory(active)));
+    }
+    if (kind==='rules' && active.data.fromList) {
+      head.append(button('一覧に戻る',()=>open('ruleList')));
     }
     if (panel) {
       const x = button('×',close,'icon-button');
@@ -241,15 +247,19 @@ export function dialogs(getState,send,loadHistory) {
       body.append(list);
     };
     if (releasesOpen) {
-      releaseHistory(body,s?.game);
+      releaseHistory(body,active.game);
       head.querySelector('button').focus({preventScroll:true});
-    } else if (kind==='gameList') {
+    } else if (kind==='gameList' || kind==='ruleList') {
+      const choosingGame = kind==='gameList';
       const grid = el('div','game-list');
       for (const id of GAME_IDS) {
-        const control = button('',()=>done('browse',{choice:id}),'control game-card');
+        const control = button('',()=>choosingGame ? done('browse',{choice:id}) :
+          open('rules',{game:id,fromList:true}),'control game-card');
         control.append(...gameCard(id));
-        control.setAttribute('aria-pressed',String(id===s.selectedGame));
-        control.disabled = s.host!==s.me;
+        if (choosingGame) {
+          control.setAttribute('aria-pressed',String(id===s.selectedGame));
+          control.disabled = s.host!==s.me;
+        }
         grid.append(control);
       }
       body.append(grid);
@@ -425,7 +435,7 @@ export function dialogs(getState,send,loadHistory) {
     } else if (kind==='settings') {
       tierSettings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}),()=>open('resetHistory'));
       if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
-    } else if (kind==='rules' && s.game===CIRCLE) {
+    } else if (kind==='rules' && active.game===CIRCLE) {
       const rules = el('dl','circle-settings');
       for (const [name,description] of CIRCLE_RULES) rules.append(el('dt','',name),el('dd','',description));
       body.append(rules);
@@ -448,7 +458,8 @@ export function dialogs(getState,send,loadHistory) {
         ['♟ プレイヤー管理','playerManagement'],['▤ 対戦履歴','roundHistory'],
         ['↻ アップデート情報','releaseHistory'],['⚙ 共通設定','commonSettings'],['↪ 退出','leave'],
       ];
-      if (s.game) items.unshift(['? ゲームルール','rules'],['⚙ ゲーム設定','settings']);
+      items.unshift(['? ゲームルール',s.game?'rules':'ruleList']);
+      if (s.game) items.splice(1,0,['⚙ ゲーム設定','settings']);
       if (s.game===CIRCLE && r) items.push(['≡ テーブルの記録','circleLog']);
       for (const [name,view] of items) menu.append(button(name,()=>open(view)));
       if (s.host===s.me) {

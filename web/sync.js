@@ -124,10 +124,11 @@ export function connect(onState,onError,onClose,onUpdate) {
       url.searchParams.set('version',version+'-'+Date.now());
       location.replace(url);
     },
-    async history(id) {
+    async history(id,game) {
       const g = generation;
       try {
-        return await request(id ? 'history/'+encodeURIComponent(id) : 'history');
+        const path = id ? 'history/'+encodeURIComponent(id) : 'history';
+        return await request(game === undefined ? path : path+'?game='+encodeURIComponent(game ?? 'all'));
       } catch (error) {
         if (error.code === 'disconnected' && g === generation) stop(error.message);
         throw error;

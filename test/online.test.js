@@ -1002,6 +1002,15 @@ test('Circle & Cross keeps hosted rules and hand privacy through takeover and st
   await host.send('choose',{choice:'tier'});
   assert.deepEqual((await guest.history()).record,[]);
   assert.equal((await guest.history(result.id)).status,404);
+  // A guest can continue browsing the history opened in the lobby or Circle & Cross.
+  const pinnedHistory = (scope,id) => h.req(
+    'history'+(id?'/'+id:'')+'?game='+scope,null,guest.token);
+  assert.deepEqual((await pinnedHistory('all')).record.map(record=>record.id),[result.id]);
+  assert.deepEqual((await pinnedHistory('circle-cross',result.id)).record,saved);
+  assert.deepEqual((await pinnedHistory('all',result.id)).record,saved);
+  assert.equal((await pinnedHistory('tier',result.id)).status,404);
+  assert.equal((await pinnedHistory('invalid')).status,400);
+  assert.equal((await h.req('history?game=all',null)).status,401);
   assert.equal((await host.send('resetHistory')).status,200);
   await host.send('lobby');
   assert.equal((await guest.history()).record.length,1);
@@ -1055,13 +1064,13 @@ test('update information keeps every past release and filters shared changes by 
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
   assert.deepEqual(tier.map(entry=>entry.version),all.map(entry=>entry.version));
-  assert.equal(circle.length,1);
+  assert.deepEqual(circle.map(entry=>entry.version),[VERSION,'2.0.0']);
   assert.equal(all[0].version,VERSION);
   assert.equal(tier[0].version,VERSION);
-  assert.equal(circle[0].version,'2.0.0');
-  const previous = tier.find(entry=>entry.version===circle[0].version);
+  assert.equal(tier[1].version,'2.0.1');
+  const previous = tier.find(entry=>entry.version==='2.0.0');
   const shared = previous.changes.find(change=>change.gameIds.includes('circle-cross'));
-  assert.ok(circle[0].changes.includes(shared));
+  assert.ok(circle[1].changes.includes(shared));
   assert.ok(all.find(entry=>entry.version==='2.0.0').changes.some(change=>!change.gameIds.length));
   assert.ok([...tier[0].changes,...circle[0].changes].every(change=>change.gameIds.length));
 });

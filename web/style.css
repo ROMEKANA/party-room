@@ -187,3 +187,10 @@ nav button{padding-inline:6px}
 .history-game{font-size:12px;font-weight:bold}.menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.update-dialog p{font-size:14px}.update-dialog h2{margin-top:0}
 @media(max-width:560px){#nav button:not(#menu){display:none}.brand{font-size:clamp(13px,3.9vw,20px)}}
 @media(max-height:560px){.circle-screen{gap:3px}.circle-player{padding:1px 4px}.circle-settings{gap:4px}.setup-screen{justify-content:safe center}.game-card .game-art{height:70px}}
+
+.rules-dialog{display:flex;flex-direction:column;max-height:100%;min-height:0}
+.rules-dialog .modal-head{flex:none;gap:6px}
+.rules-dialog .modal-head h2{margin-right:auto}
+.rules-dialog .modal-head button{flex-shrink:0}
+.rules-dialog .dialog-body{min-height:0;overflow:auto}
+.rules-dialog .circle-settings{grid-template-columns:minmax(0,1fr) minmax(0,2.2fr)}
