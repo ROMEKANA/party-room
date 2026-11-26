@@ -1,12 +1,28 @@
 import {DEFAULTS,hasParent} from '../web/config.js';
+import {DEFAULT_HISTORY_MINUTES,TIER} from '../web/games.js';
 import {randomTopic} from './topics.js';
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
 export const HEARTBEAT_MS = 6_000;
 export const initialRoom = () => ({
-  settings:{...DEFAULTS,hasParent}, players:[], host:null, round:null, joinOrder:0,
+  settings:{...DEFAULTS}, players:[], host:null, round:null,
+  game:null, selectedGame:TIER, scope:null, common:{historyMinutes:DEFAULT_HISTORY_MINUTES},
   rotation:{parent:null, setter:null}, previousParent:null,
 });
+export function prepareRoom(s) {
+  if (!Object.hasOwn(s,'game')) {
+    s.game = s.round ? TIER : null;
+    s.selectedGame = TIER;
+    s.scope = s.round?.id ?? null;
+    if (s.round) s.legacyRound = s.round.id;
+  }
+  s.settings = {...DEFAULTS,...s.settings};
+  s.common ??= {historyMinutes:DEFAULT_HISTORY_MINUTES};
+}
+function resetEmpty(s) {
+  const settings = {...s.settings,nominatedParent:null,nominatedMode1Setter:null,nominatedSetter:null};
+  Object.assign(s,initialRoom(),{settings,common:s.common,legacyRound:null,nominees:{}});
+}
 export class GameError extends Error {
   constructor(message, status = 409, code = 'invalid') {
     super(message);
@@ -26,7 +42,7 @@ export function reconcile(s, now) {
   if (!host || host.seen + ONLINE_MS + HOST_GRACE_MS <= now) {
     s.host = connected(s, now)[0]?.id ?? null;
   }
-  if (!s.round && !s.players.length) Object.assign(s, initialRoom());
+  if (!s.round && !s.players.length && (s.game || s.scope || s.selectedGame !== TIER)) resetEmpty(s);
 }
 export function join(s, name, now, token) {
   const id = typeof name === 'string' ? name.trim().normalize('NFC') : '';
@@ -39,7 +55,7 @@ export function join(s, name, now, token) {
   if (!p) {
     requireGame(s.players.length < 10, '満員です。同じ名前での復帰は可能です。', 409, 'full');
     const used = new Set(s.players.map(person => person.color));
-    p = {id, color:Array.from({length:10}, (_,i) => i).find(i => !used.has(i)), order:++s.joinOrder};
+    p = {id, color:Array.from({length:10}, (_,i) => i).find(i => !used.has(i))};
     s.players.push(p);
   }
   p.token = crypto.randomUUID();
@@ -53,6 +69,10 @@ export function leave(s, p, now) {
   p.left = true;
   p.token = null;
   if (s.host === p.id) s.host = connected(s, now)[0]?.id ?? null;
+  for (const entry of Object.values(s.nominees ?? {})) {
+    if (entry.parent === p.id) { entry.parent = null; entry.setter = null; }
+    if (entry.setter === p.id) entry.setter = null;
+  }
   if (s.settings.nominatedParent === p.id) {
     s.settings.nominatedParent = null;
     s.settings.nominatedSetter = null;
@@ -63,7 +83,7 @@ export function leave(s, p, now) {
   if (s.round?.mode === 4 && s.round.phase !== 'result' && s.round.ids.includes(p.id) &&
       !s.round.drafts?.[s.round.ids.indexOf(p.id)]?.final) s.round = null;
   if (!s.round?.ids.includes(p.id)) s.players = s.players.filter(person => person !== p);
-  if (s.players.every(person => person.left)) Object.assign(s, initialRoom());
+  if (s.players.every(person => person.left)) resetEmpty(s);
 }
 export function settingsFor(s, patch, now) {
   requireGame(patch && typeof patch === 'object' && !Array.isArray(patch), '設定が無効です。', 400);
@@ -83,6 +103,17 @@ export function settingsFor(s, patch, now) {
       Object.hasOwn(max,key) && Number.isInteger(value) && value >= 1 && value <= max[key];
     requireGame(ok, '設定値が範囲外です。', 400);
     next[key] = value;
+  }
+  if (next.mode !== s.settings.mode) {
+    s.nominees ??= {};
+    const previous = s.nominees[s.settings.mode] ??= {};
+    previous.parent = s.settings.nominatedParent;
+    previous.setter = s.settings.nominatedSetter;
+    previous.nonParentSetter = s.settings.nominatedMode1Setter;
+    const saved = s.nominees[next.mode];
+    if (!Object.hasOwn(patch,'nominatedParent')) next.nominatedParent = saved?.parent ?? null;
+    if (!Object.hasOwn(patch,'nominatedSetter')) next.nominatedSetter = saved?.setter ?? null;
+    if (!Object.hasOwn(patch,'nominatedMode1Setter')) next.nominatedMode1Setter = saved?.nonParentSetter ?? null;
   }
   if (!next.nominatedParent ||
       (Object.hasOwn(patch,'nominatedParent') && next.nominatedParent === next.nominatedSetter &&

@@ -3,7 +3,11 @@ import {$,avatars,board,button,el,fit,progress,resultSummary,short,showLife,show
 import {connect,storedName} from './sync.js';
 import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
 import {placementProblem,remainingCards} from './placement.js';
-import {dialogs} from './dialogs.js';
+import {CIRCLE,GAMES} from './games.js';
+import {VERSION} from './version.js';
+import {lobby} from './party.js';
+import {circlePlay,circleSettings} from './circle.js';
+import {dialogs,tierSettings} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
 let resultRound, resultPlayer;
@@ -21,7 +25,20 @@ const sync = connect((next,previous) => {
   state = null;
   $('join-error').textContent = message;
   render();
+},(version,s)=>{
+  const overlay = $('update-overlay');
+  if (!version) {
+    if (overlay.open) overlay.close();
+    return;
+  }
+  $('update-version').textContent = `現在のバージョン ${VERSION} ／ 最新バージョン ${version}`;
+  $('update-reconnect').hidden = !s;
+  $('update-now').onclick = ()=>sync.refresh(version);
+  if (!overlay.open) overlay.showModal();
 });
+$('update-overlay').addEventListener('cancel',event=>event.preventDefault());
+$('brand-version').textContent = 'ver'+VERSION;
+$('brand-version').setAttribute('aria-label','ver'+VERSION+'のアップデート情報を開く');
 function notice(message,network = false) {
   $('notice').dataset.connection = String(network);
   $('notice').textContent = message;
@@ -91,7 +108,12 @@ function render() {
   }
   $('entrance').hidden = Boolean(state);
   $('release-history').hidden = Boolean(state);
-  for (const id of ['nav','players','intro','board','deck']) $(id).hidden = !state;
+  $('nav').hidden = $('players').hidden = !state;
+  const tierBoard = Boolean(state?.game && state.game !== CIRCLE && r);
+  for (const id of ['intro','board','deck']) $(id).hidden = !tierBoard;
+  $('party').hidden = !state || tierBoard;
+  $('rules').hidden = $('settings').hidden = !state?.game;
+  document.querySelector('.app').classList.toggle('party-layout',Boolean(state && !tierBoard));
   if (!state) {
     lastScreen = '';
     notice('');
@@ -99,6 +121,44 @@ function render() {
     return;
   }
   const s = state;
+  if (!tierBoard) {
+    const key = JSON.stringify(s);
+    if (key !== lastScreen) {
+      lastScreen = key;
+      avatars(s);
+      const root = $('party');
+      root.replaceChildren();
+      root.className = 'party-screen '+(!s.game?'lobby-screen':r?'circle-screen':'setup-screen');
+      const send = (...args)=>sync.send(...args);
+      if (!s.game) lobby(root,s,send,(...args)=>panel.open(...args));
+      else {
+        const host = s.me===s.host;
+        root.append(el('h1','party-title',GAMES[s.game].title));
+        if (r) circlePlay(root,r,send,host);
+        else if (s.game===CIRCLE) circleSettings(root,s);
+        else {
+          const settings = el('div','setup-columns');
+          const columns = [el('section','setup-fields'),el('section','setup-fields')];
+          columns.forEach((column,index)=>tierSettings(column,s,index,null,
+            patch=>send('settings',{settings:patch})));
+          settings.append(...columns);
+          root.append(settings);
+          if (s.startProblem) root.append(el('p','deck-message',s.startProblem));
+        }
+        if (host && !s.playing) {
+          const actions = el('div','party-actions');
+          const start = button(r?'もう一度遊ぶ':'ゲーム開始',()=>send('start'),'primary');
+          start.disabled = Boolean(s.startProblem);
+          actions.append(start);
+          if (r) actions.append(button('設定に戻る',()=>send('backSettings')));
+          actions.append(button('ロビーに戻る',()=>send('lobby')));
+          root.append(actions);
+        } else if (!r && !host) root.append(el('p','deck-message','ホストがゲームを開始します。'));
+      }
+    }
+    panel.render();
+    return;
+  }
   const consensusResult = r?.mode===4 && r.phase==='result';
   if (consensusResult && resultRound!==r.id) {
     resultRound = r.id;
@@ -183,10 +243,9 @@ function deck(s,ownBoard,hideCards) {
   };
   const nextRound = () => {
     if (host) {
-      add('同じ設定で次のラウンド',()=>send('start'),'primary').disabled=Boolean(s.startProblem);
-      add('設定に戻る',async ()=>{
-        if (await send('lobby')) panel.open('settings');
-      });
+      add('もう一度遊ぶ',()=>send('start'),'primary').disabled=Boolean(s.startProblem);
+      add('設定に戻る',()=>send('backSettings'));
+      add('ロビーに戻る',()=>send('lobby'));
     }
   };
   choices.classList.remove('actions');

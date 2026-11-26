@@ -144,3 +144,46 @@ nav button{padding-inline:6px}
 .deck.full-board .current{height:clamp(30px,5dvh,42px);justify-content:center;overflow:hidden}
 .deck.full-board .choices{display:flex;height:40px}
 .deck.full-board .choices button{padding:3px 5px}
+
+.party-screen{flex:1;min-height:0;display:flex;flex-direction:column;gap:clamp(5px,1.2dvh,12px)}
+.lobby-screen{align-items:center;justify-content:center}
+.game-cover,.game-card{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+.game-cover{width:min(100%,420px);font-size:clamp(20px,5vw,31px)}
+.game-art{width:100%;display:flex;justify-content:center;align-items:center;border-radius:16px;overflow:hidden;min-height:0}
+.game-cover .game-art{height:clamp(100px,38dvh,300px)}
+.tier-art{background:#e4ece1;flex-direction:column;gap:3px;padding:12px 22%}
+.tier-art b{width:100%;display:flex;align-items:center;flex:1;gap:12%;border-radius:6px;background:#fffdf7;color:#293f38;font-size:clamp(12px,4vw,21px);padding-left:9%}
+.tier-art b::after{content:'';width:45%;height:56%;border-radius:3px;background:#fffdf7}
+.tier-art b:nth-child(1){background:#f1a7a2}.tier-art b:nth-child(2){background:#efc094}.tier-art b:nth-child(3){background:#e9d78f}.tier-art b:nth-child(4){background:#b9d3b2}.tier-art b:nth-child(5){background:#b7cbdc}
+.circle-art{gap:3%;background:#2c342f}
+.circle-art b{border-radius:9px;box-shadow:0 3px 6px #0002;font-size:clamp(28px,10vw,72px);display:grid;place-items:center;aspect-ratio:3/4;width:24%;background:#fff9e9;color:#346455}
+.circle-art .cross{background:#edc5b6;color:#7c3d36;transform:rotate(9deg)}
+.circle-art .circle{transform:rotate(-9deg)}
+.game-switch,.party-actions{display:flex;align-items:center;justify-content:center;gap:6px}
+.game-switch .control{min-width:42px}
+.game-list,.setup-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.game-card .game-art{height:clamp(70px,16dvh,120px)}
+.game-card[aria-pressed=true]{background:#dce9d9;border-color:#6c8c70}
+.game-card:disabled{opacity:.8}
+.party-title{text-align:center;font-size:clamp(18px,5vw,28px)}
+.setup-screen{justify-content:center;overflow:auto}
+.setup-fields{display:grid;align-content:start;gap:6px;border:1px solid #dce3d4;border-radius:12px;background:#f8f8f2;padding:8px}
+.setup-heading{font-size:15px;margin:0 0 4px}.setup-fields .setting-row{grid-template-columns:minmax(0,1fr);gap:2px;font-size:13px}
+.circle-settings{display:grid;grid-template-columns:auto 1fr;gap:7px;font-size:14px;margin:0;padding:8px}
+.circle-settings dt{font-weight:700}.circle-settings dd{margin:0}
+.circle-screen{justify-content:center}
+.circle-heading,.circle-info{margin:0;text-align:center;font-size:clamp(12px,2.2dvh,17px)}
+.circle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.circle-player{min-width:0;display:grid;gap:1px;border:1px solid #dce3d4;background:#fffdf7;border-radius:9px;padding:3px 6px;font-size:clamp(11px,2.2dvh,14px)}
+.circle-player strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.circle-player.active{border-color:#57795d;background:#e4ece1}.circle-player.eliminated{opacity:.58}
+.circle-status{font-size:clamp(10px,1.8dvh,13px)}.circle-pile{display:flex;align-items:center;gap:3px;min-height:19px}
+.circle-pile span{min-width:17px;text-align:center;border-radius:4px;background:#e9ede3}
+.circle-pile .cross,.circle-hand .cross{color:#973a38}.circle-pile .circle,.circle-hand .circle{color:#224f3c}
+.circle-player .control{min-height:26px;padding:2px}.circle-actions{display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap}
+.circle-actions p{width:100%;margin:0;text-align:center;font-size:14px}.circle-hand{display:flex;gap:4px}
+.circle-hand button{border:1px solid #dce3d4;border-radius:7px;background:#fffdf7;font-size:clamp(15px,3.5dvh,24px);font-weight:700;min-width:clamp(29px,9vw,48px);min-height:32px;padding:0}
+.circle-bid-value{width:58px;min-height:34px;margin:0;padding:3px}.circle-log{margin:0;max-height:65dvh;overflow:auto}
+.history-game{font-size:12px;font-weight:bold}.menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.update-dialog p{font-size:14px}.update-dialog h2{margin-top:0}
+@media(max-width:560px){#nav button:not(#menu){display:none}.brand{font-size:clamp(13px,3.9vw,20px)}}
+@media(max-height:560px){.circle-screen{gap:3px}.circle-player{padding:1px 4px}.circle-settings{gap:4px}.setup-screen{justify-content:safe center}.game-card .game-art{height:70px}}

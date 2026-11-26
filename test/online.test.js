@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../dist/server/index.js';
+import {releaseEntries} from '../web/release-data.js';
+import {VERSION} from '../web/version.js';
 import {api} from '../server/api.js';
 
 function harness() {
@@ -38,10 +40,10 @@ function harness() {
     },
   };
   let now = 100;
-  const req = async (route, payload, token) => {
+  const req = async (route, payload, token, headers = {}) => {
     const request = new Request('https://tier.test/api/'+route,{
       method:payload?'POST':'GET',body:payload?JSON.stringify(payload):undefined,
-      headers:token?{Authorization:'Bearer '+token}:{},
+      headers:{'X-App-Version':VERSION,...(token?{Authorization:'Bearer '+token}:{}),...headers},
     });
     const response = await api(request,db,now);
     return {...await response.json(),status:response.status};
@@ -53,19 +55,20 @@ function harness() {
     const get = ()=>req('state',null,token);
     const history = id=>req(id ? 'history/'+id : 'history',null,token);
     const send = async (type,fields={},base) => {
-      const r = base === undefined ? (await get()).state?.round : base;
-      return req('action',{id:crypto.randomUUID(),round:r?.id??null,version:r?.version??0,type,...(r?.draftRevision != null ? {draftRevision:r.draftRevision} : {}),...fields},token);
+      const s = (await get()).state;
+      const r = base === undefined ? s?.round : base;
+      return req('action',{id:crypto.randomUUID(),game:s?.game,scope:s?.scope,round:r?.id??null,version:r?.version??0,type,...(r?.draftRevision != null ? {draftRevision:r.draftRevision} : {}),...fields},token);
     };
     return {name,token,get,history,send,state:async()=>(await get()).state};
   }
   const raw = () => JSON.parse(sqlite.prepare('SELECT state FROM room').get().state);
-  return {join,raw,req,advance:ms=>{now+=ms;},db};
+  return {join,raw,req,sqlite,advance:ms=>{now+=ms;},db};
 }
 
 test('Worker artifact serves UI, stores game in database binding and isolates public asset paths',async()=>{
   const h=harness();
   const base='https://tier.test';
-  assert.match(await (await worker.fetch(new Request(base),{DB:h.db})).text(),/Tier表予想ゲーム/);
+  assert.match(await (await worker.fetch(new Request(base),{DB:h.db})).text(),/いつでもパーティールーム/);
   assert.equal((await worker.fetch(new Request(base+'/server/room.js'),{DB:h.db})).status,404);
   const r=await worker.fetch(new Request(base+'/api/join',{method:'POST',body:'{"name":"Worker"}'}),{DB:h.db});
   assert.equal(r.status,200);
@@ -103,6 +106,7 @@ async function round(mode,extra={}) {
   const h=harness();
   const host=await h.join('host'), b=await h.join('b'), c=await h.join('c');
   const players={host,b,c};
+  await host.send('choose',{choice:'tier'});
   const set=await host.send('settings',{settings:{mode,difficulty:'easy',cardsPerPlayer:2,...extra}});
   assert.equal(set.status,200);
   assert.equal((await b.send('settings',{settings:{mode:1}})).status,409);
@@ -304,6 +308,7 @@ test('ten players complete a hard 100-card mode 1 round and every card appears o
   const h=harness();
   const group=await Promise.all(Array.from({length:10},(_,i)=>h.join('seat'+i)));
   const host=group.find(p=>p.name===h.raw().host);
+  await host.send('choose',{choice:'tier'});
   await host.send('settings',{settings:{difficulty:'hard',cardsPerPlayer:10,mode1Lives:30}});
   await host.send('start');
   const who=id=>group.find(p=>p.name===id);
@@ -352,6 +357,7 @@ test('mode 1 nomination is one-time and skips no one in random rotation; mode 2 
   const [host,b,c]=await Promise.all(['h','b','c'].map(name=>h.join(name)));
   const owner=[host,b,c].find(p=>p.name===h.raw().host);
   const player=owner===b?c:b;
+  await owner.send('choose',{choice:'tier'});
   assert.equal((await owner.send('settings',{settings:{nominatedMode1Setter:player.name}})).status,200);
   await owner.send('start');
   assert.equal(h.raw().round.setter,player.name);
@@ -449,6 +455,7 @@ test('history omits unfinished rounds, expires after 30 minutes, and is deleted 
   const {h,host,parent,players,setter}=await round(3);
   assert.equal((await parent.state()).round.initialLives,1);
   await setter.send('topic',{word:'消える履歴'});
+  assert.equal((await host.send('commonSettings',{minutes:30})).status,200);
   for (const player of Object.values(players).filter(p=>p!==parent)) {
     for (let i=0;i<2;i++) {
       const {input} = (await player.state()).round;
@@ -718,7 +725,7 @@ test('consensus isolates HTTP views, compares finalized boards, and saves one co
     assert.deepEqual(draft.displayOrder,order);
     assert.equal(draft.cards.length,6);
     assert.equal((await b.state()).players.find(p=>p.id===host.name).mark,0);
-    const payload = {type:'submit',id:crypto.randomUUID(),round:draft.id,version:draft.version,draftRevision:draft.draftRevision};
+    const payload = {type:'submit',id:crypto.randomUUID(),game:'tier',scope:draft.id,round:draft.id,version:draft.version,draftRevision:draft.draftRevision};
     assert.equal((await h.req('action',payload,host.token)).status,200);
     assert.equal((await h.req('action',payload,host.token)).status,200);
     const originalHost = host;
@@ -767,6 +774,7 @@ test('a ten-person consensus match persists all 100 cards, ten boards and seven 
   const players=[];
   for (let i=0;i<10;i++) players.push(await h.join('player'+i));
   const [host] = players;
+  await host.send('choose',{choice:'tier'});
   await host.send('settings',{settings:{mode:4,cardsPerPlayer:10,difficulty:'hard',nominatedMode1Setter:host.name}});
   await host.send('start');
   await host.send('topic',{word:'最大人数と枚数'});
@@ -788,4 +796,161 @@ test('a ten-person consensus match persists all 100 cards, ten boards and seven 
   assert.equal(record.cards.length,100);
   assert.equal(record.result.matched,100);
   assert.deepEqual(record.result.boards.map(board=>Object.keys(board).length),Array(10).fill(100));
+});
+
+test('lobby synchronizes hosts, settings and player order across games and restarts',async()=>{
+  const h=harness();
+  const host=await h.join('host'), guest=await h.join('guest'), third=await h.join('third');
+  assert.equal((await guest.state()).game,null);
+  assert.equal((await guest.send('browse',{choice:'circle-cross'})).status,409);
+  assert.equal((await guest.send('choose',{choice:'tier'})).status,409);
+  assert.equal((await host.send('shuffle')).status,200);
+  const order = (await guest.state()).players.map(p=>p.id);
+  assert.deepEqual([...order].sort(),['guest','host','third']);
+  assert.equal((await guest.state()).host,'host');
+  assert.equal((await host.send('choose',{choice:'tier'})).status,200);
+  const tier = await host.state();
+  await host.send('settings',{settings:{difficulty:'hard',cardsPerPlayer:4,mode:1,mode1Lives:6}});
+  await host.send('settings',{settings:{mode:2,mode2Target:90}});
+  await host.send('settings',{settings:{mode:1}});
+  assert.equal((await guest.state()).settings.mode1Lives,6);
+  await host.send('settings',{settings:{mode:2}});
+  assert.equal((await guest.state()).settings.mode2Target,90);
+  await host.send('settings',{settings:{mode:1}});
+  assert.equal((await guest.send('commonSettings',{minutes:300})).status,409);
+  assert.equal((await host.send('commonSettings',{minutes:300})).status,200);
+  assert.equal((await host.send('lobby')).status,200);
+  await host.send('browse',{choice:'circle-cross'});
+  assert.equal((await guest.state()).selectedGame,'circle-cross');
+  await host.send('choose',{choice:'circle-cross'});
+  const delayed = await h.req('action',{id:crypto.randomUUID(),type:'start',
+    scope:tier.scope,game:'tier',round:null,version:0},host.token);
+  assert.equal(delayed.code,'stale');
+  assert.deepEqual((await guest.state()).players.map(p=>p.id),order);
+  await guest.send('leave');
+  await third.send('leave');
+  assert.match((await host.state()).startProblem,/2人以上/);
+  assert.equal((await host.send('start')).status,409);
+  await host.send('leave');
+  const next = await h.join('next');
+  assert.equal((await next.state()).game,null);
+  assert.equal((await next.state()).common.historyMinutes,300);
+  await next.send('choose',{choice:'tier'});
+  const restored = (await next.state()).settings;
+  assert.equal(restored.difficulty,'hard');
+  assert.equal(restored.cardsPerPlayer,4);
+  assert.equal(restored.mode1Lives,6);
+});
+
+test('Circle & Cross keeps hosted rules and hand privacy through takeover and stores one scoped history',async()=>{
+  const h=harness();
+  let host=await h.join('host');
+  let guest=await h.join('guest');
+  await host.send('browse',{choice:'circle-cross'});
+  await host.send('choose',{choice:'circle-cross'});
+  for (let i=0;i<5;i++) await h.join('extra'+i);
+  assert.match((await host.state()).startProblem,/6人まで/);
+  assert.equal((await host.send('start')).status,409);
+  for (let i=0;i<5;i++) await host.send('kick',{player:'extra'+i});
+  assert.equal((await host.send('start')).status,200);
+  assert.equal((await host.send('settings',{settings:{mode:2}})).status,409);
+  const initial=(await host.state()).round;
+  assert.deepEqual(initial.players.map(p=>p.name),['host','guest']);
+  assert.deepEqual(initial.players.map(p=>p.cards),[['○','○','○','×'],null]);
+  const oldGuest = guest;
+  guest = await h.join('guest');
+  assert.equal((await oldGuest.get()).status,401);
+  assert.deepEqual((await guest.state()).round.players.map(p=>p.cards),[null,['○','○','○','×']]);
+  const byIndex = [host,guest], challenger = byIndex[initial.parent], opponent = byIndex[1-initial.parent];
+
+  async function challenge(card) {
+    assert.equal((await challenger.send('place',{card})).status,200);
+    assert.equal((await opponent.send('place',{card:0})).status,200);
+    assert.equal((await challenger.send('bid',{value:1})).status,200);
+    assert.equal((await opponent.send('pass')).status,200);
+    assert.equal((await challenger.send('reveal',{target:1-initial.parent})).status,409);
+    assert.equal((await challenger.send('reveal',{target:initial.parent})).status,200);
+  }
+  await challenge(3);
+  assert.equal((await challenger.state()).round.phase,'loss');
+  assert.equal((await opponent.send('lose',{card:3})).status,409);
+  assert.equal((await challenger.send('lose',{card:3})).status,200);
+  assert.equal((await challenger.state()).round.players[initial.parent].count,3);
+  assert.equal((await challenger.send('next')).status,200);
+  await challenge(0);
+  assert.equal((await challenger.send('next')).status,200);
+  await challenge(0);
+  const result = (await host.state()).round;
+  assert.equal(result.phase,'finished');
+  assert.equal(result.winner,initial.parent);
+  const saved = (await guest.history(result.id)).record;
+  assert.equal(saved.gameId,'circle-cross');
+  assert.equal(saved.winner,challenger.name);
+  assert.deepEqual(saved.board.players.map(p=>p.cards),[null,null]);
+  assert.equal((await host.history()).record.length,1);
+  assert.equal((await host.send('lobby')).status,200);
+  assert.equal((await guest.history()).record.length,1);
+  await host.send('browse',{choice:'tier'});
+  await host.send('choose',{choice:'tier'});
+  assert.deepEqual((await guest.history()).record,[]);
+  assert.equal((await guest.history(result.id)).status,404);
+  assert.equal((await host.send('resetHistory')).status,200);
+  await host.send('lobby');
+  assert.equal((await guest.history()).record.length,1);
+  await host.send('resetHistory');
+  assert.deepEqual((await guest.history()).record,[]);
+});
+
+test('published version, reduced state responses, and previously stored room and history are compatible',async()=>{
+  const h=harness();
+  assert.equal((await h.req('version')).version,VERSION);
+  const host=await h.join('host'), guest=await h.join('guest');
+  const lobby = await host.get();
+  const small = await h.req('state',null,host.token,{
+    'X-Room-Revision':String(lobby.revision),'X-Room-Online':lobby.online,
+  });
+  assert.equal(small.unchanged,true);
+  assert.equal(small.state,undefined);
+  const oldStart = await h.req('action',{id:crypto.randomUUID(),type:'choose',scope:null,game:null,choice:'tier'},
+    host.token,{'X-App-Version':'1.9.9'});
+  assert.equal(oldStart.code,'updateRequired');
+
+  await host.send('choose',{choice:'tier'});
+  await host.send('start');
+  const stored = h.raw();
+  delete stored.game;
+  delete stored.scope;
+  delete stored.selectedGame;
+  delete stored.common;
+  h.sqlite.prepare('UPDATE room SET state=?').run(JSON.stringify(stored));
+  const legacy = await host.state();
+  assert.equal(legacy.game,'tier');
+  assert.equal(legacy.round.id,stored.round.id);
+  assert.equal(legacy.common.historyMinutes,120);
+  const setter = stored.round.setter===host.name ? host : guest;
+  const legacyTopic = await h.req('action',{type:'topic',id:crypto.randomUUID(),round:stored.round.id,
+    version:stored.round.version,word:'継続テスト'},setter.token,{'X-App-Version':'1.3.1'});
+  assert.equal(legacyTopic.status,200);
+
+  const summary = {id:crypto.randomUUID(),endedAt:100,expiresAt:100+30*60_000,topic:'旧履歴'};
+  h.sqlite.prepare('INSERT INTO round_history VALUES (?,?,?,?)')
+    .run(summary.id,summary.endedAt,JSON.stringify(summary),JSON.stringify(summary));
+  assert.equal((await host.history(summary.id)).record.gameId,'tier');
+  h.advance(31*60_000);
+  assert.equal((await host.history(summary.id)).status,200);
+  assert.equal((await host.send('commonSettings',{minutes:30})).status,200);
+  assert.equal((await host.history(summary.id)).status,404);
+});
+
+test('update information keeps every past release and filters shared changes by game',()=>{
+  const all = releaseEntries();
+  const tier = releaseEntries('tier');
+  const circle = releaseEntries('circle-cross');
+  assert.deepEqual(tier.map(entry=>entry.version),all.map(entry=>entry.version));
+  assert.equal(circle.length,1);
+  assert.equal(circle[0].version,VERSION);
+  const shared = tier[0].changes.find(change=>change.gameIds.includes('circle-cross'));
+  assert.ok(circle[0].changes.includes(shared));
+  assert.ok(all[0].changes.some(change=>!change.gameIds.length));
+  assert.ok([...tier[0].changes,...circle[0].changes].every(change=>change.gameIds.length));
 });

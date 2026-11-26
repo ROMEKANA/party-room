@@ -2,26 +2,28 @@
 <html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="theme-color" content="#f5f4ee">
-<title>みんなでtier表</title>
-<meta name="description" content="友だちと単語を出して、Tierやお題を予想したり、全員一致に挑戦したりするゲーム。">
+<title>いつでもパーティールーム</title>
+<meta name="description" content="みんなでtier表とCircle & Crossを、友だちと一緒に遊べるオンラインゲーム。">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./style.css"></head>
 <body><main class="app">
   <header>
-    <div class="brand">みんなでtier表 <button id="brand-version" class="brand-version" type="button" aria-label="ver1.3.1のアップデート履歴を開く" aria-haspopup="dialog">ver1.3.1</button></div>
-    <button id="release-history" class="control" type="button" aria-haspopup="dialog">アップデート履歴</button>
+    <div class="brand">いつでもパーティールーム <button id="brand-version" class="brand-version" type="button" aria-label="アップデート情報を開く" aria-haspopup="dialog"></button></div>
+    <button id="release-history" class="control" type="button" aria-haspopup="dialog">アップデート情報</button>
     <nav id="nav" aria-label="ゲームのメニュー" hidden>
       <button id="roundHistory">履歴</button><button id="rules">ルール</button><button id="settings">設定</button><button id="menu">メニュー</button>
     </nav>
   </header>
   <section id="entrance" class="entrance">
     <form id="join" class="entry-card">
-      <h1>Tier表予想ゲーム</h1>
+      <h1>いつでもパーティールーム</h1>
       <label>名前<input id="name" maxlength="40" autocomplete="nickname" required placeholder="20文字まで"></label>
       <button class="primary">ルームに参加</button>
       <p id="join-error" class="error" role="alert"></p>
     </form>
   </section>
   <section id="players" class="players" aria-label="プレイヤー" hidden></section>
+  <section id="party" class="party-screen" hidden></section>
   <section id="intro" class="intro" hidden>
     <div class="title-line"><h1 id="board-title"></h1><span id="life" class="pill"></span></div>
     <div class="subline"><span id="phase-label"></span><span id="progress"></span></div>
@@ -39,4 +41,10 @@
   <div id="dialog" class="dialog" role="dialog" aria-labelledby="dialog-title"></div>
   <button id="peek-board" class="control peek-board" type="button" hidden>Tier表を確認する</button>
 </section>
+<dialog id="update-overlay" class="update-dialog" aria-labelledby="update-title">
+  <h2 id="update-title">アプリの更新があります</h2>
+  <p id="update-version"></p>
+  <p id="update-reconnect">更新後、自動的にルームへ再接続します。</p>
+  <button id="update-now" class="primary" type="button">アプリを更新する</button>
+</dialog>
 <script type="module" src="./app.js"></script></body></html>

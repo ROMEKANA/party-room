@@ -28,7 +28,8 @@ test('mode 1 early Bad rejection, full attendance for judgement, retries, and ho
   const s=initialRoom(), now=1;
   const players = ['a','b','c','d','e'].map(name=>join(s,name,now));
   s.settings.mode1Wrong='retry';
-  const send=(p,type,extra={})=>action(s,p,{type,round:s.round?.id??null,version:s.round?.version??0,...extra},now);
+  const send=(p,type,extra={})=>action(s,p,{type,scope:s.scope,game:s.game,round:s.round?.id??null,version:s.round?.version??0,...extra},now);
+  send(players[0],'choose',{choice:'tier'});
   send(players[0],'start');
   const r=s.round;
   send(players.find(p=>p.id===r.setter),'topic');
@@ -75,15 +76,16 @@ test('mode 1 early Bad rejection, full attendance for judgement, retries, and ho
   assert.deepEqual(r.votes,{});
 });
 
-test('mode 1 repeats one shuffled order and keeps the correct tier visible under a locked wrong placement', () => {
+test('mode 1 repeats the shared player order and keeps the correct tier visible under a locked wrong placement', () => {
   const s=initialRoom(), now=1;
   const players=['a','b','c','d'].map(name=>join(s,name,now));
-  const send=(p,type,extra={})=>action(s,p,{type,round:s.round?.id??null,version:s.round?.version??0,...extra},now);
+  const send=(p,type,extra={})=>action(s,p,{type,scope:s.scope,game:s.game,round:s.round?.id??null,version:s.round?.version??0,...extra},now);
+  send(players[0],'choose',{choice:'tier'});
   send(players[0],'start');
   const r=s.round;
   const owners=r.cards.map(c=>c.owner);
   const first=owners.slice(0,players.length);
-  assert.deepEqual([...first].sort(),players.map(p=>p.id));
+  assert.deepEqual(first,players.map(p=>p.id));
   assert.deepEqual(owners,[...first,...first,...first]);
   send(players.find(p=>p.id===r.setter),'topic',{source:'random'});
   const card=r.cards[0], author=players.find(p=>p.id===card.owner), voters=players.filter(p=>p!==author);

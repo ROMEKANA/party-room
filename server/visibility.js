@@ -3,18 +3,24 @@ import {currentInput, lifeStatus, orderedCards} from './round.js';
 import {consensusProgress,consensusView} from './consensus.js';
 import {currentCardId} from './placement.js';
 import {judgeId} from './mode23.js';
+import {CIRCLE} from '../web/games.js';
+import {circleStartProblem,playing} from './game.js';
+import {view as circleView} from './circle.js';
 import {DEFAULTS,TIERS,startProblem} from '../web/config.js';
 
 export function visible(s, id, now) {
-  const r = s.round;
+  const r = s.game === CIRCLE ? null : s.round;
   const showAuthors = r?.mode === 2 ? r.settings.mode2ShowAuthors : r?.settings.mode3ShowAuthors;
   const hideAuthors = r && r.mode !== 1 && id === r.parent && r.phase !== 'result' && !showAuthors;
   const {topicSource, ...settings} = {...DEFAULTS,...s.settings};
   const state = {
     me:id, host:s.host, settings, historyVersion:s.historyVersion ?? null,
+    game:s.game, selectedGame:s.selectedGame, scope:s.scope,
+    common:s.common, playing:playing(s),
+    ...(r && playing(s) ? {tierRoundSettings:r.settings} : {}),
     tiers:TIERS[(r?.settings ?? s.settings).difficulty],
-    startProblem:startProblem(s.settings,connected(s,now).length),
-    players:s.players.filter(p => !p.left || r?.ids.includes(p.id)).map(p => {
+    startProblem:s.game === CIRCLE ? circleStartProblem(s,now) : startProblem(s.settings,connected(s,now).length),
+    players:s.players.filter(p => !p.left || s.round?.ids.includes(p.id)).map(p => {
       let mark = null;
       if (r?.mode === 4) {
         mark = consensusProgress(r,p.id);
@@ -25,11 +31,16 @@ export function visible(s, id, now) {
           !(r.mode === 3 && hideAuthors)) {
         mark = r.cards.filter(c => c.owner === p.id && !c.word).length || 'done';
       }
+      if (s.game === CIRCLE && s.round?.turn === p.id) mark = 'turn';
       return {id:p.id,color:p.color,online:isOnline(p,now),left:p.left,mark,
-        spectator:Boolean(r && !r.ids.includes(p.id))};
+        spectator:Boolean(s.round && !s.round.ids.includes(p.id))};
     }),
     round:null,
   };
+  if (s.game === CIRCLE && s.round) {
+    state.round = circleView({...s.round,host:s.host},id);
+    return state;
+  }
   if (!r) return state;
   if (r.mode === 4) {
     state.round = consensusView(r,id,currentInput(r,id),s.players);

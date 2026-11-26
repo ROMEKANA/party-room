@@ -2,6 +2,10 @@ import {COLORS,DEFAULTS,MODES,hasParent} from './config.js';
 import {$,button,cardDescription,el,fit,short} from './board.js';
 import {consensusDetail} from './consensus.js';
 import {historyDetail,historyList} from './history.js';
+import {CIRCLE,HISTORY_MINUTES} from './games.js';
+import {CIRCLE_RULES,circleSettings} from './circle.js';
+import {GAME_IDS} from './games.js';
+import {gameCard} from './party.js';
 import {releaseHistory} from './releases.js';
 
 export function dialogs(getState,send,loadHistory) {
@@ -12,7 +16,7 @@ export function dialogs(getState,send,loadHistory) {
   let acknowledgedTurn = sessionStorage.getItem(turnStorageKey);
   let historyTimer;
   const historyBoard = new ResizeObserver(entries=>entries.forEach(({target})=>fit(target)));
-  const stablePanels = ['settings','rules','menu','roundHistory','resetHistory'];
+  const stablePanels = ['settings','rules','menu','roundHistory','resetHistory','gameList','commonSettings','playerManagement'];
   const refreshOnReturn = () => {
     if (!document.hidden && panel?.kind === 'roundHistory') refreshHistory(panel);
   };
@@ -125,11 +129,12 @@ export function dialogs(getState,send,loadHistory) {
   function open(kind, data = {}) {
     clearTimeout(historyTimer);
     const s = getState(), r = s?.round;
-    panel = {kind,data,round:r?.id,version:r?.version,draftRevision:r?.draftRevision};
+    panel = {kind,data,scope:s?.scope,round:r?.id,version:r?.version,draftRevision:r?.draftRevision};
     tab = 0;
     problem = '';
     if (kind === 'roundHistory') {
       panel.historyVersion = s.historyVersion;
+      panel.historyMinutes = s.common.historyMinutes;
       refreshHistory(panel);
     }
     render(true);
@@ -150,13 +155,18 @@ export function dialogs(getState,send,loadHistory) {
   }
   function render(force = false) {
     const s = getState(), r = s?.round;
+    if (panel && panel.scope !== s?.scope && panel.kind !== 'releaseHistory') {
+      clearTimeout(historyTimer);
+      panel = null;
+    }
     const releasesOpen = panel?.kind === 'releaseHistory';
     if (panel && ['move','submit'].includes(panel.kind) &&
         panel.draftRevision !== r?.draftRevision) panel = null;
     if (!releasesOpen && (!s || (panel && !stablePanels.includes(panel.kind) &&
         (panel.round!==r?.id || panel.version!==r?.version)))) panel = null;
-    if (panel?.kind === 'roundHistory' && panel.historyVersion !== s.historyVersion) {
+    if (panel?.kind === 'roundHistory' && (panel.historyVersion !== s.historyVersion || panel.historyMinutes !== s.common.historyMinutes)) {
       panel.historyVersion = s.historyVersion;
+      panel.historyMinutes = s.common.historyMinutes;
       refreshHistory(panel);
     }
     const active = panel ?? automatic(s);
@@ -167,11 +177,13 @@ export function dialogs(getState,send,loadHistory) {
     peekButton.hidden = !canPeek;
     overlay.classList.toggle('has-peek',canPeek);
     const historyOpen = kind === 'roundHistory';
-    const key = releasesOpen ? kind : JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
+    const key = releasesOpen ? JSON.stringify([kind,s?.game]) : JSON.stringify([kind,active?.data,historyOpen ? null : r?.id,
       stablePanels.includes(kind) ? null : r?.version,historyOpen ? null : r?.input?.id,
       ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.online]):null]:null,
-      kind==='menu'?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null]);
+      ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online]),r?.phase]:null,
+      kind==='gameList'?[s?.selectedGame,s?.host]:null,
+      kind==='commonSettings'?[s?.common,s?.host]:null]);
     if (!force && key===lastKey) return;
     const oldInput = dialog.querySelector('input[type=text]');
     const preserve = oldInput && oldInput.dataset.key === String(active?.data?.card?.id ?? r?.input?.id ?? r?.id);
@@ -187,10 +199,10 @@ export function dialogs(getState,send,loadHistory) {
     dialog.replaceChildren();
     if (!active) return;
     problem = '';
-    const titles = {releaseHistory:'アップデート履歴',settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
+    const titles = {releaseHistory:'アップデート情報',settings:'ゲーム設定',rules:'遊び方',menu:'ルームメニュー',
       input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirmTurn:'あなたの番です',
-      preview:'カード詳細',move:'カード詳細',ownCards:'自分の投稿',editWord:'投稿を修正',history:'誤答の詳細',roundHistory:active.record?(active.card && active.record.mode===4?'カード詳細':'履歴の結果'):'履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
-      submit:r?.mode===4?'最終確定':'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作'};
+      preview:'カード詳細',move:'カード詳細',ownCards:'自分の投稿',editWord:'投稿を修正',history:'誤答の詳細',roundHistory:active.record?(active.card && active.record.mode===4?'カード詳細':'履歴の結果'):'対戦履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
+      submit:r?.mode===4?'最終確定':'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作',playerManagement:'プレイヤー管理',commonSettings:'共通設定',gameList:'ゲーム一覧',lobby:'ロビーに戻る',circleLog:'テーブルの記録'};
     const head = el('div','modal-head');
     const title = el('h2','',titles[kind]);
     title.id = 'dialog-title';
@@ -229,8 +241,41 @@ export function dialogs(getState,send,loadHistory) {
       body.append(list);
     };
     if (releasesOpen) {
-      releaseHistory(body);
+      releaseHistory(body,s?.game);
       head.querySelector('button').focus({preventScroll:true});
+    } else if (kind==='gameList') {
+      const grid = el('div','game-list');
+      for (const id of GAME_IDS) {
+        const control = button('',()=>done('browse',{choice:id}),'control game-card');
+        control.append(...gameCard(id));
+        control.setAttribute('aria-pressed',String(id===s.selectedGame));
+        control.disabled = s.host!==s.me;
+        grid.append(control);
+      }
+      body.append(grid);
+    } else if (kind==='commonSettings') {
+      const label = el('label','setting-row','対戦履歴の保存期間');
+      const select = el('select');
+      for (const minutes of HISTORY_MINUTES) {
+        const option = el('option','',minutes===30?'30分':minutes===1440?'1日':minutes/60+'時間');
+        option.value = minutes;
+        option.selected = s.common.historyMinutes === minutes;
+        select.append(option);
+      }
+      select.disabled = s.host!==s.me;
+      select.onchange = async()=>{
+        select.disabled = true;
+        if (!await act('commonSettings',{minutes:Number(select.value)}) && select.isConnected) {
+          select.value = s.common.historyMinutes;
+          select.disabled = false;
+        }
+      };
+      label.append(select);
+      body.append(label);
+    } else if (kind==='circleLog') {
+      const list = el('ol','circle-log');
+      for (const event of [...r.log].reverse()) list.append(el('li','',event));
+      body.append(list);
     } else if (kind==='confirmTurn') {
       const ok = button('OK',()=>{
         acknowledgedTurn = active.data.turn;
@@ -332,7 +377,8 @@ export function dialogs(getState,send,loadHistory) {
           dialog.querySelector('.history-card')?.scrollIntoView({block:'nearest'});
           dialog.querySelector('.tile[aria-pressed=true]')?.focus({preventScroll:true});
         },active.resultPlayer,player=>{active.resultPlayer=player;render(true);});
-        historyBoard.observe(body.querySelector('.history-board'));
+        const board = body.querySelector('.history-board');
+        if (board) historyBoard.observe(board);
       } else if (!active.selected && active.list?.length) {
         historyList(body,active.list,(id,scrollTop)=>{
           active.scrollTop = scrollTop;
@@ -343,13 +389,13 @@ export function dialogs(getState,send,loadHistory) {
           refreshHistory(active);
         },active.scrollTop ?? 0);
       } else {
-        text(!active.selected && active.list ? '直近30分の履歴はありません。' : '履歴を読み込み中…');
+        text(!active.selected && active.list ? '保存されている対戦履歴はありません。' : '履歴を読み込み中…');
       }
     } else if (kind==='resetHistory') {
-      text('このルームの履歴をすべて削除しますか？');
-      actions(button('キャンセル',()=>{open('settings');tab=2;render(true);}),
+      text(s.game?'選択中のゲームの履歴をすべて削除しますか？':'すべてのゲームの履歴を削除しますか？');
+      actions(button('キャンセル',()=>open('menu')),
         button('すべて削除',async()=>{
-          if (await act('resetHistory')) {open('settings');tab=2;render(true);}
+          if (await act('resetHistory')) open('roundHistory');
         },'control danger'));
     } else if (kind==='history') {
       const miss = r.history[tab];
@@ -361,21 +407,28 @@ export function dialogs(getState,send,loadHistory) {
       next.disabled = tab===r.history.length-1;
       text((tab+1)+' / '+r.history.length);
       actions(prev,next);
-    } else if (kind==='end' || kind==='leave' || kind==='submit') {
+    } else if (kind==='end' || kind==='leave' || kind==='submit' || kind==='lobby') {
       const consensus = r?.mode===4;
       const leavingEarly = consensus && r.phase!=='result' && !r.final &&
         !s.players.find(p=>p.id===s.me)?.spectator;
-      text({end:'このラウンドを終了し、全員を待機画面に戻します。',
+      text({end:'このラウンドを終了し、全員を設定画面に戻します。',
+        lobby:'進行中の対戦を終了し、全員をロビーに戻します。',
         leave:leavingEarly?'退出するとこの対戦は途中終了します。退出しますか？':'ルームから退出しますか？',
         submit:consensus?'このTier表で確定しますか？ 確定後は変更できません。':'現在のTier表で回答を提出しますか？'}[kind]);
-      actions(button('キャンセル',close),button({end:'途中終了',leave:'退出',submit:consensus?'確定':'回答を提出'}[kind],()=>done(kind),'primary'));
+      actions(button('キャンセル',close),button({end:'途中終了',lobby:'ロビーに戻る',leave:'退出',submit:consensus?'確定':'回答を提出'}[kind],()=>done(kind),'primary'));
     } else if (kind==='judge') {
       text(r.topic,'dialog-word');
       text('親の口頭回答を聞いてから判定してください。');
       actions(button('不正解',()=>done('judge',{win:false})),button('正解',()=>done('judge',{win:true}),'primary'));
+    } else if (kind==='settings' && s.game===CIRCLE) {
+      circleSettings(body,s);
     } else if (kind==='settings') {
-      settings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}),()=>open('resetHistory'));
+      tierSettings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}),()=>open('resetHistory'));
       if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
+    } else if (kind==='rules' && s.game===CIRCLE) {
+      const rules = el('dl','circle-settings');
+      for (const [name,description] of CIRCLE_RULES) rules.append(el('dt','',name),el('dd','',description));
+      body.append(rules);
     } else if (kind==='rules') {
       const pages = [
         ['共通','上のTierほどお題に強く当てはまります。秘密のTierやお題は口頭で明かさず、選んだ理由は話して構いません。'],
@@ -390,17 +443,29 @@ export function dialogs(getState,send,loadHistory) {
       text(pages[tab][1]);
     } else if (kind==='menu') {
       text('参加名  '+s.me);
-      const controls = [button(r?'退出':'退出・名前変更',()=>open('leave'))];
-      if (s.host===s.me && r) controls.push(button('途中終了',()=>open('end')));
-      actions(...controls);
+      const menu = el('div','member-grid menu-grid');
+      const items = [
+        ['♟ プレイヤー管理','playerManagement'],['▤ 対戦履歴','roundHistory'],
+        ['↻ アップデート情報','releaseHistory'],['⚙ 共通設定','commonSettings'],['↪ 退出','leave'],
+      ];
+      if (s.game) items.unshift(['? ゲームルール','rules'],['⚙ ゲーム設定','settings']);
+      if (s.game===CIRCLE && r) items.push(['≡ テーブルの記録','circleLog']);
+      for (const [name,view] of items) menu.append(button(name,()=>open(view)));
       if (s.host===s.me) {
-        const choices = el('div','member-grid');
-        for (const p of s.players.filter(p=>p.online&&p.id!==s.me)) choices.append(button(short(p.id),()=>open('player',{id:p.id})));
-        if (choices.childElementCount) {
-          text('権限を譲渡する相手'+(r?'':'・キックする相手'));
-          body.append(choices);
-        }
+        menu.append(button('▤ 履歴をリセット',()=>open('resetHistory')));
+        if (s.playing) menu.append(button('■ ゲーム途中終了',()=>open('end')));
+        if (s.game) menu.append(button('⌂ ロビーに戻る',()=>s.playing?open('lobby'):done('lobby')));
       }
+      body.append(menu);
+    } else if (kind==='playerManagement') {
+      const players = el('div','member-grid');
+      for (const p of s.players.filter(p=>!p.left)) {
+        const control = button(short(p.id)+(p.id===s.host?' 👑':''),()=>open('player',{id:p.id}));
+        control.disabled = s.host!==s.me || !p.online || p.id===s.me;
+        players.append(control);
+      }
+      body.append(players);
+      if (s.host===s.me && !r) body.append(button('プレイヤー順をシャッフル',()=>done('shuffle')));
     } else if (kind==='player') {
       text(active.data.id,'dialog-word');
       const controls = [button('ホスト権限を譲渡',()=>done('transfer',{player:active.data.id}),'primary')];
@@ -426,12 +491,14 @@ export function dialogs(getState,send,loadHistory) {
   });
   return {open,render,error,close};
 }
-function settings(body,s,tab,onTab,change,resetHistory) {
-  const editable = s.host===s.me && !s.round;
-  const st = s.settings;
-  const tabs = el('div','action-row');
-  ['基本','モード','詳細'].forEach((name,i)=>tabs.append(button(name,()=>onTab(i),i===tab?'selected control':'control')));
-  body.append(tabs,el('p','dialog-copy',editable?'ホストが変更できます。':s.round?'進行中のため閲覧のみ。':'待機中のホストが変更できます。'));
+export function tierSettings(body,s,tab,onTab,change,resetHistory) {
+  const editable = s.host===s.me && !s.playing;
+  const st = s.playing && s.tierRoundSettings ? s.tierRoundSettings : s.settings;
+  if (onTab) {
+    const tabs = el('div','action-row');
+    ['基本','モード','詳細'].forEach((name,i)=>tabs.append(button(name,()=>onTab(i),i===tab?'selected control':'control')));
+    body.append(tabs,el('p','dialog-copy',editable?'ホストが変更できます。':s.playing?'進行中のため閲覧のみ。':'ホストが変更できます。'));
+  } else body.append(el('h2','setup-heading',tab===0?'基本設定':'モード設定'));
   const range = (n,step=1) => Array.from({length:n},(_,i)=>(i+1)*step);
   const select = (title,key,options,available = true) => {
     const label = el('label','setting-row',title), input = el('select');
@@ -501,6 +568,6 @@ function settings(body,s,tab,onTab,change,resetHistory) {
       select('端Tierの出現順を制限','edgePrerequisites',[[true,'ON'],[false,'OFF']]);
       body.append(el('p','dialog-copy','ONの場合、SSはSが、EはDが一度出てから登場します。配布枚数は変わりません。'));
     }
-    if (s.host === s.me) body.append(button('履歴をリセット',resetHistory,'control danger'));
+    if (resetHistory && s.host === s.me) body.append(button('履歴をリセット',resetHistory,'control danger'));
   }
 }

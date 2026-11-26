@@ -13,7 +13,7 @@ export function button(text, callback, cls = 'control') {
   return b;
 }
 const PALETTE = ['#edaa9e','#eac38e','#e8d68d','#b9d39c','#9dcbb8','#a1c8d6','#adbfe1','#c3b3de','#e2b4ca','#cdb5a2'];
-const MARKS = {good:'👍',bad:'👎',done:'✓'};
+const MARKS = {good:'👍',bad:'👎',done:'✓',turn:'▶'};
 export const short = name => [...(name??'')].slice(0,6).join('');
 export function avatars(s,root = $('players'),selection) {
   const players = s.players.filter(p=>!p.left);
@@ -31,7 +31,7 @@ export function avatars(s,root = $('players'),selection) {
     circle.style.setProperty('--avatar',PALETTE[p.color]);
     if (p.mark != null) {
       const mark = el('span','mark',MARKS[p.mark]??p.mark);
-      mark.title = p.mark==='good'?'Good':p.mark==='bad'?'Bad':'進捗';
+      mark.title = p.mark==='good'?'Good':p.mark==='bad'?'Bad':p.mark==='turn'?'手番':'進捗';
       circle.append(mark);
     }
     person.title = [p.id,...roles,...(p.online===false?['切断中']:[])].join('・');

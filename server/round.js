@@ -41,8 +41,7 @@ export function start(s, now) {
     s.settings.nominatedSetter = null;
     s.previousParent = parent;
   }
-  // Shuffle once, then repeat the same order for each pass through the players.
-  const order = shuffle(children);
+  const order = children;
   const tiers = TIERS[settings.difficulty];
   const cards = draw(settings, totalCards(settings, ids.length)).map((answer, i) => ({
     id:crypto.randomUUID(), owner:order[i % order.length], word:null, answer, placed:null, fixed:false,
