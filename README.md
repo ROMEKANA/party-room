@@ -4,9 +4,10 @@
 
 ## 動かす
 
-Node.js 24 で `npm run dev` を実行します。開発用のルームと履歴はローカルSQLiteに保存します。`npm test` は Worker をビルドして、ゲームルールと複数の独立したHTTP接続を検証します。
+Node.js 24 で `npm run dev` を実行します。既定のURLは `http://localhost:4173` です。開発用のルームと履歴はローカルSQLite（既定 `.dev/room.sqlite`）に保存します。`npm test` は Worker をビルドして、ゲームルールと複数の独立したHTTP接続を検証します。
 
 - [アプリの仕様](docs/SPECIFICATION.md)
 - [アーキテクチャとゲーム追加手順](docs/ARCHITECTURE.md)
+- [テスト方針と回帰項目](docs/TEST_POLICY.md)
 - [バージョン・公開方針](docs/RELEASE_POLICY.md)
 - [開発時の指示](AGENTS.md)
