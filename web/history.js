@@ -1,4 +1,4 @@
-import {BATTLE,CIRCLE,GAMES,TIER} from './games.js';
+import {isBattle,CIRCLE,GAMES,TIER} from './games.js';
 import {BATTLE_MODES} from './battle-rules.js';
 import {battleHistory,battleOutcome} from './battle.js';
 import {circleTable} from './circle.js';
@@ -24,7 +24,7 @@ export function historyList(body,records,select,scrollTop) {
     timestamp.dateTime = new Date(record.endedAt).toISOString();
     const game = GAMES[record.gameId] ?? GAMES[TIER];
     const circle = record.gameId===CIRCLE;
-    const battle = record.gameId===BATTLE;
+    const battle = isBattle(record.gameId);
     row.append(timestamp,el('span','history-game',(battle?'⚡ ':circle?'○× ':'▤ ')+game.title),
       el('strong','history-topic',battle?battleOutcome(record.outcome):circle?record.winner+'の勝利':record.topic),
       el('span','history-meta',battle?`${BATTLE_MODES[record.mode]} ／ ${record.count}人 ／ ${record.turn}ターン`:
@@ -36,7 +36,7 @@ export function historyList(body,records,select,scrollTop) {
   list.scrollTop = scrollTop;
 }
 export function historyDetail(body,record,me,card,selectCard,selectedPlayer,selectPlayer) {
-  if (record.gameId===BATTLE) return battleHistory(body,record);
+  if (isBattle(record.gameId)) return battleHistory(body,record);
   if (record.gameId===CIRCLE) {
     body.append(el('h3','circle-heading',record.winner+'の勝利'),
       el('p','circle-info',`${record.count}人 · ${record.rounds}ラウンド`));

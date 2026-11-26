@@ -1,4 +1,4 @@
-import {BATTLE,CIRCLE,TIER} from './games.js';
+import {BATTLE,JOB_BATTLE,CIRCLE,TIER} from './games.js';
 import {VERSION} from './version.js';
 
 const legacyReleases = [
@@ -82,7 +82,12 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'『名前の知らないあのゲーム』を追加',changes:[
+  {version:VERSION,title:'「真・名前のないあのゲーム」を追加',changes:[
+    {description:'10種類の職業が登場し、攻撃や回復、反撃など職業ごとの能力で対戦が変化します。',gameIds:[JOB_BATTLE]},
+    {description:'対戦ごとにランダムな3候補から職業を1つ選びます。',gameIds:[JOB_BATTLE]},
+    {description:'バトルロイヤルとチーム戦に対応しています。',gameIds:[JOB_BATTLE]},
+  ]},
+  {version:'3.0.0',title:'『名前の知らないあのゲーム』を追加',changes:[
     {description:'溜める・ガード・単体攻撃・全体攻撃を使って、最後まで生き残ることを目指します。',gameIds:[BATTLE]},
     {description:'2〜10人のバトルロイヤル、同人数のチーム戦、1対3のボス戦で遊べます。',gameIds:[BATTLE]},
     {description:'全員が同時に行動を選び、サーバーがターンごとに攻撃・防御・相殺をまとめて判定します。',gameIds:[BATTLE]},

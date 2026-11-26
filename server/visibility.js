@@ -3,7 +3,7 @@ import {currentInput, lifeStatus, orderedCards} from './round.js';
 import {consensusProgress,consensusView} from './consensus.js';
 import {currentCardId} from './placement.js';
 import {judgeId} from './mode23.js';
-import {BATTLE,CIRCLE,TIER} from '../web/games.js';
+import {isBattle,CIRCLE,TIER} from '../web/games.js';
 import {currentStartProblem} from './game.js';
 import {view as circleView} from './circle.js';
 import {battleView} from './battle.js';
@@ -46,7 +46,7 @@ export function visible(s, id, now) {
     state.round = circleView({...s.round,host:s.host},id);
     return state;
   }
-  if (s.game === BATTLE) {
+  if (isBattle(s.game)) {
     state.battle = battleRoster(s);
     if (s.round) {
       state.round = battleView(s.round,id,roundPlayers(s,now));

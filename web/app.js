@@ -3,7 +3,7 @@ import {$,avatars,board,button,el,fit,progress,resultSummary,short,showLife,show
 import {connect,storedName} from './sync.js';
 import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
 import {placementProblem,remainingCards} from './placement.js';
-import {BATTLE,CIRCLE,GAMES,TIER} from './games.js';
+import {isBattle,CIRCLE,GAMES,TIER} from './games.js';
 import {VERSION} from './version.js';
 import {lobby} from './party.js';
 import {circlePlay,circleSettings} from './circle.js';
@@ -123,7 +123,7 @@ function render() {
     return;
   }
   const s = state;
-  const watching = s.game === BATTLE && r ? !r.players.some(p=>p.id===s.me) :
+  const watching = isBattle(s.game) && r ? !r.players.some(p=>p.id===s.me) :
     s.players.find(p=>p.id===s.me)?.spectator;
   if (!tierBoard) {
     const key = JSON.stringify(s);
@@ -132,7 +132,7 @@ function render() {
       avatars(s);
       const root = $('party');
       root.replaceChildren();
-      const battle = s.game === BATTLE;
+      const battle = isBattle(s.game);
       root.className = 'party-screen '+(!s.game?'lobby-screen':r?(battle?'battle-screen':'circle-screen'):'setup-screen');
       const send = (...args)=>sync.send(...args);
       if (!s.game) lobby(root,s,send,(...args)=>panel.open(...args));
@@ -143,7 +143,7 @@ function render() {
         if (!battle || !r || watching) root.append(title);
         if (watching && !r) root.append(el('p','deck-message','空きができると順番に参加します。'));
         if (battle) {
-          if (r) renderBattle(root,s,send,sync.serverNow);
+          if (r) renderBattle(root,s,send,sync.serverNow,panel.open);
           else battleSettings(root,s,send);
         } else if (r) circlePlay(root,r,send,host);
         else if (s.game===CIRCLE) circleSettings(root,s);

@@ -2,7 +2,7 @@ import {consensusCards} from './consensus.js';
 import {MODES} from '../web/config.js';
 import {lifeStatus, orderedCards} from './round.js';
 
-import {BATTLE,CIRCLE,TIER} from '../web/games.js';
+import {isBattle,CIRCLE,TIER} from '../web/games.js';
 import {view as circleView} from './circle.js';
 
 import {battleView} from './battle.js';
@@ -25,7 +25,7 @@ export function snapshot(s, now) {
     const summary = {...header, winner, rounds:board.round};
     return {summary,detail:{...summary,board}};
   }
-  if (s.game === BATTLE) {
+  if (isBattle(s.game)) {
     const summary = {...header,mode:r.settings.mode,turn:r.turn,outcome:r.outcome};
     const {settings,players,boss,previous} = battleView(r,null);
     return {summary,detail:{...summary,settings,players,boss,previous}};

@@ -2,9 +2,9 @@ import {COLORS,DEFAULTS,MODES,hasParent,rightNeighbor} from './config.js';
 import {$,button,cardDescription,el,fit,short} from './board.js';
 import {consensusDetail} from './consensus.js';
 import {historyDetail,historyList} from './history.js';
-import {BATTLE,CIRCLE,GAMES,GAME_IDS,HISTORY_MINUTES} from './games.js';
+import {JOB_BATTLE,isBattle,CIRCLE,GAMES,GAME_IDS,HISTORY_MINUTES} from './games.js';
 import {CIRCLE_RULES,circleSettings} from './circle.js';
-import {BATTLE_RULES,battleSettings} from './battle.js';
+import {BATTLE_RULES,JOB_BATTLE_RULES,battleSettings,jobDetails} from './battle.js';
 import {gameCard} from './party.js';
 import {releaseHistory} from './releases.js';
 
@@ -17,7 +17,7 @@ export function dialogs(getState,send,loadHistory) {
   let historyTimer;
   const historyBoard = new ResizeObserver(entries=>entries.forEach(({target})=>fit(target)));
   const readingPanels = ['rules','ruleList','roundHistory','releaseHistory'];
-  const stablePanels = ['settings','menu','resetHistory','gameList','commonSettings','playerManagement'];
+  const stablePanels = ['settings','menu','resetHistory','gameList','commonSettings','playerManagement','battleJobDetail'];
   const refreshOnReturn = () => {
     if (!document.hidden && panel?.kind === 'roundHistory') refreshHistory(panel);
   };
@@ -184,7 +184,7 @@ export function dialogs(getState,send,loadHistory) {
       stablePanels.includes(kind) ? null : r?.version,r?.input?.id,
       ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.left]):null,
-        s?.battle,s?.game===BATTLE?s.players:null]:null,
+        s?.battle,isBattle(s?.game)?s.players:null]:null,
       ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online,p.spectator]),r?.phase]:null,
       kind==='gameList'?[s?.selectedGame,s?.host]:null,
       kind==='commonSettings'?[s?.common,s?.host]:null]);
@@ -204,7 +204,7 @@ export function dialogs(getState,send,loadHistory) {
     dialog.replaceChildren();
     if (!active) return;
     problem = '';
-    const titles = {releaseHistory:'アップデート情報',settings:'ゲーム設定',rules:active.data?.fromList ? GAMES[active.game].title+'の遊び方' : '遊び方',ruleList:'ゲームルール',menu:'ルームメニュー',
+    const titles = {battleJobDetail:'職業と行動の詳細',releaseHistory:'アップデート情報',settings:'ゲーム設定',rules:active.data?.fromList ? GAMES[active.game].title+'の遊び方' : '遊び方',ruleList:'ゲームルール',menu:'ルームメニュー',
       input:'単語を提出',topic:'お題を決める',vote:'配置に投票',confirmTurn:'あなたの番です',
       preview:'カード詳細',move:'カード詳細',ownCards:'自分の投稿',editWord:'投稿を修正',history:'誤答の詳細',roundHistory:active.record?(active.card && active.record.mode===4?'カード詳細':'履歴の結果'):'対戦履歴',resetHistory:'履歴をリセット',end:'ゲームを途中終了',leave:'ルームから退出',
       submit:r?.mode===4?'最終確定':'回答を提出',judge:'お題の回答を判定',player:'プレイヤー操作',playerManagement:'プレイヤー管理',commonSettings:'共通設定',gameList:'ゲーム一覧',lobby:'ロビーに戻る',circleLog:'テーブルの記録'};
@@ -432,7 +432,9 @@ export function dialogs(getState,send,loadHistory) {
       text(r.topic,'dialog-word');
       text('親の口頭回答を聞いてから判定してください。');
       actions(button('不正解',()=>done('judge',{win:false})),button('正解',()=>done('judge',{win:true}),'primary'));
-    } else if (kind==='settings' && s.game===BATTLE) {
+    } else if (kind==='battleJobDetail') {
+      jobDetails(body,active.data.player,active.data.action);
+    } else if (kind==='settings' && isBattle(s.game)) {
       const tabs = el('div','action-row');
       ['基本','詳細'].forEach((label,i)=>tabs.append(button(label,()=>{tab=i;render(true);},i===tab?'selected control':'control')));
       body.append(tabs);
@@ -443,9 +445,9 @@ export function dialogs(getState,send,loadHistory) {
     } else if (kind==='settings') {
       tierSettings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}),()=>open('resetHistory'));
       if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
-    } else if (kind==='rules' && [BATTLE,CIRCLE].includes(active.game)) {
+    } else if (kind==='rules' && (isBattle(active.game) || active.game===CIRCLE)) {
       const rules = el('dl','circle-settings');
-      for (const [name,description] of active.game===BATTLE ? BATTLE_RULES : CIRCLE_RULES) rules.append(el('dt','',name),el('dd','',description));
+      for (const [name,description] of active.game===JOB_BATTLE ? JOB_BATTLE_RULES : isBattle(active.game) ? BATTLE_RULES : CIRCLE_RULES) rules.append(el('dt','',name),el('dd','',description));
       body.append(rules);
     } else if (kind==='rules') {
       const pages = [

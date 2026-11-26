@@ -605,8 +605,9 @@ test('mode 2 appends a repositioned card to the end of the target tier in play a
     order.push(current.id);
     await parent.send('place',{card:current.id,tier:tiers[i]});
   }
-  assert.deepEqual((await host.state()).round.cards.map(c=>c.id),order);
-  const [first,second,...rest] = order;
+  const arranged = [...order].sort((a,b)=>tiers[order.indexOf(a)].localeCompare(tiers[order.indexOf(b)]));
+  assert.deepEqual((await host.state()).round.cards.map(c=>c.id),arranged);
+  const [first,second,...rest] = arranged;
   await parent.send('select',{card:first});
   await parent.send('place',{card:first,tier:'A'});
   await parent.send('submit');
@@ -1278,13 +1279,15 @@ test('update information keeps every past release and filters shared changes by 
   const all = releaseEntries();
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
-  assert.deepEqual(tier.map(entry=>entry.version),all.slice(2).map(entry=>entry.version));
-  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[VERSION]);
+  assert.deepEqual(tier.map(entry=>entry.version),all.slice(3).map(entry=>entry.version));
+  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),['3.0.0']);
   assert.deepEqual(circle.map(entry=>entry.version),['2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.equal(all[0].title,'『名前の知らないあのゲーム』を追加');
-  assert.equal(all[1].version,'2.0.3');
-  assert.ok(all[1].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[0].title,'「真・名前のないあのゲーム」を追加');
+  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[VERSION]);
+  assert.equal(all[1].title,'『名前の知らないあのゲーム』を追加');
+  assert.equal(all[2].version,'2.0.3');
+  assert.ok(all[2].changes.every(change=>change.gameIds.length===0));
   assert.equal(tier[0].version,'2.0.2');
   assert.equal(tier[1].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
@@ -1454,4 +1457,72 @@ test('battle: no-limit turns wait, reconnect preserves moves and non-host synchr
   await movement(returned,2,1,'charge');
   assert.equal((await movement(c,2,1,'charge')).state.round.phase,'closing');
   assert.equal((await returned.send('next')).status,400);
+});
+
+test('job battle persists private drafts through reconnect, resolves concurrent choices, and saves distinct history',async()=>{
+  const h=harness();
+  const host=await h.join('host');
+  const guest=await h.join('guest');
+  const choice='job-battle';
+  assert.equal((await host.send('browse',{choice})).status,200);
+  assert.equal((await host.send('choose',{choice})).status,200);
+  for (const settings of [{mode:'boss'},{hp:5},{energy:5}]) {
+    assert.equal((await host.send('settings',{settings})).status,400);
+  }
+  assert.equal((await host.send('settings',{settings:{seconds:null}})).status,200);
+  const started=await host.send('start');
+  assert.equal(started.status,200);
+  const draft=started.state.round.jobDraft;
+  const watcher=await h.join('watcher');
+  assert.equal((await watcher.state()).round.jobDraft,null);
+  assert.equal((await watcher.send('battleJob',{job:draft.candidates[0]})).status,403);
+  const resumed=await h.join('host');
+  assert.equal((await host.get()).status,401);
+  assert.deepEqual((await resumed.state()).round.jobDraft,draft);
+  const guestRound=(await guest.state()).round;
+  const guestJob=guestRound.jobDraft.candidates[0];
+  assert.equal((await guest.send('battleJob',{job:guestJob})).status,200);
+  assert.equal((await guest.send('battleJob',{job:guestRound.jobDraft.candidates[1]})).status,409);
+  let waiting=(await resumed.state()).round;
+  assert.equal(waiting.jobsReady,1);
+  assert.ok(waiting.players.every(p=>p.job === undefined));
+  assert.deepEqual(waiting.jobDraft,draft);
+  const hostJob=draft.candidates[0];
+  assert.equal((await resumed.send('battleJob',{job:hostJob},started.state.round)).status,200);
+  let r=(await resumed.state()).round;
+  assert.equal(r.id,started.state.round.id);
+  assert.equal(r.turn,1);
+  assert.deepEqual((await watcher.state()).round.players.map(p=>p.job),[hostJob,guestJob]);
+  assert.equal((await h.req('state',null,watcher.token,{'X-App-Version':'3.0.0'})).state.round,null);
+
+  for (let i=0;i<12 && r.phase !== 'result';i++) {
+    h.advance(r.settings.readyMs);
+    const kind=i%2===0 ? 'charge' : 'strike';
+    assert.equal((await resumed.send('battleMove',{turn:r.turn,sequence:1,kind,target:'guest'})).status,200);
+    assert.equal((await guest.send('battleMove',{turn:r.turn,sequence:1,kind:'charge'})).status,200);
+    h.advance(r.settings.graceMs);
+    r=(await watcher.state()).round;
+    if (r.phase==='review') {
+      h.advance(r.settings.resultMs);
+      r=(await resumed.state()).round;
+    }
+  }
+  assert.equal(r.phase,'result');
+  assert.equal(r.outcome.winner,'host');
+  const history=await watcher.history();
+  assert.equal(history.record.length,1);
+  assert.equal(history.record[0].gameId,choice);
+  assert.deepEqual((await watcher.history(r.id)).record.players.map(p=>p.job),[hostJob,guestJob]);
+  assert.equal((await watcher.send('leave')).status,200);
+  const replay=(await resumed.send('start')).state.round;
+  assert.equal(replay.phase,'jobs');
+  assert.notEqual(replay.id,r.id);
+  const freshHost=(await resumed.state()).round;
+  const freshGuest=(await guest.state()).round;
+  const simultaneous=await Promise.all([
+    resumed.send('battleJob',{job:freshHost.jobDraft.candidates[0]},freshHost),
+    guest.send('battleJob',{job:freshGuest.jobDraft.candidates[0]},freshGuest),
+  ]);
+  assert.deepEqual(simultaneous.map(response=>response.status),[200,200]);
+  assert.equal((await resumed.state()).round.turn,1);
 });

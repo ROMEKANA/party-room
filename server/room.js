@@ -1,6 +1,7 @@
 import {DEFAULTS,hasParent,rightNeighbor} from '../web/config.js';
-import {BATTLE,CIRCLE,DEFAULT_HISTORY_MINUTES,GAMES,TIER} from '../web/games.js';
+import {BATTLE,JOB_BATTLE,isBattle,CIRCLE,DEFAULT_HISTORY_MINUTES,GAMES,TIER} from '../web/games.js';
 import {BATTLE_DEFAULTS} from '../web/battle-rules.js';
+import {JOB_BATTLE_FIXED} from '../web/battle-jobs.js';
 import {randomTopic} from './topics.js';
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
@@ -29,6 +30,7 @@ function resetEmpty(s) {
   Object.assign(s,initialRoom(),{settings,common:s.common,legacyRound:null,nominees:{}});
   if (s.battleSettings) s.battleSettings.bossId = null;
   delete s.battleTeams;
+  delete s.jobBattleTeams;
 }
 export class GameError extends Error {
   constructor(message, status = 409, code = 'invalid') {
@@ -58,7 +60,7 @@ export const playing = s => Boolean(s.round && s.round.phase !== (s.game === CIR
 export function gameMembers(s) {
   const game = GAMES[s.game];
   if (!game) return [];
-  const mode = s.game === BATTLE ? s.battleSettings?.mode : s.settings.mode;
+  const mode = isBattle(s.game) ? s[battleStorage(s.game).settings]?.mode : s.settings.mode;
   return members(s).slice(0,game.modeMax?.[mode] ?? game.max);
 }
 
@@ -73,19 +75,32 @@ export function balanceTeams(ids, previous = {}) {
   return {pink,blue};
 }
 
-export function battleRoster(s) {
+export function battleStorage(game) {
+  return game === JOB_BATTLE ? {settings:'jobBattleSettings',teams:'jobBattleTeams'} :
+    {settings:'battleSettings',teams:'battleTeams'};
+}
+
+export function battleRoster(s, game = s.game) {
   const players = members(s);
-  const settings = {...BATTLE_DEFAULTS,...s.battleSettings};
+  const keys = battleStorage(game);
+  const settings = {...BATTLE_DEFAULTS,...s[keys.settings]};
+  if (game === JOB_BATTLE) {
+    Object.assign(settings,JOB_BATTLE_FIXED,{bossId:null});
+    if (settings.mode === 'boss') settings.mode = BATTLE_DEFAULTS.mode;
+  }
   const slots = players.slice(0,GAMES[BATTLE].modeMax.boss);
   if (!slots.some(player => player.id === settings.bossId)) settings.bossId = null;
-  return {settings,teams:balanceTeams(players.map(player => player.id),s.battleTeams)};
+  return {settings,teams:balanceTeams(players.map(player => player.id),s[keys.teams])};
 }
 
 function reconcileBattleRoster(s) {
-  if (!s.battleSettings && !s.battleTeams) return;
-  const {settings,teams} = battleRoster(s);
-  if (s.battleSettings) s.battleSettings = settings;
-  if (s.battleTeams) s.battleTeams = teams;
+  for (const game of [BATTLE,JOB_BATTLE]) {
+    const keys = battleStorage(game);
+    if (!s[keys.settings] && !s[keys.teams]) continue;
+    const {settings,teams} = battleRoster(s,game);
+    if (s[keys.settings]) s[keys.settings] = settings;
+    if (s[keys.teams]) s[keys.teams] = teams;
+  }
 }
 
 export function roundPlayers(s, now) {

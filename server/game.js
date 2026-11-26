@@ -1,4 +1,4 @@
-import {alignRoles, balanceTeams, battleRoster, connected, gameMembers, isOnline, leave, members, moveRolesFirst, playing, requireGame, settingsFor} from './room.js';
+import {alignRoles, balanceTeams, battleRoster, battleStorage, connected, gameMembers, isOnline, leave, members, moveRolesFirst, playing, requireGame, settingsFor} from './room.js';
 import {start, topicAction} from './round.js';
 import {mode1} from './mode1.js';
 import {consensus} from './consensus.js';
@@ -6,15 +6,15 @@ import {mode23} from './mode23.js';
 import {act as circleAction,startCircle} from './circle.js';
 import {shuffle} from './draw.js';
 import {hasParent,startProblem} from '../web/config.js';
-import {BATTLE,CIRCLE,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
-import {battleSettings,battleStartProblem,startBattle,submitBattleMove} from './battle.js';
+import {JOB_BATTLE,isBattle,CIRCLE,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
+import {battleSettings,battleStartProblem,startBattle,submitBattleMove,selectBattleJob} from './battle.js';
 import {VERSION,newerVersion} from '../web/version.js';
 
 const readyPlayers = (s,now) => gameMembers(s).filter(p => isOnline(p,now));
 
 function gameStartProblem(s, players) {
   if (s.game === TIER) return startProblem(s.settings,players.length);
-  if (s.game === BATTLE) return battleStartProblem(battleRoster(s).settings,players);
+  if (isBattle(s.game)) return battleStartProblem(battleRoster(s).settings,players);
   const min = GAMES[s.game]?.min;
   return players.length < min ? `開始には接続中のプレイヤーが${min}人以上必要です。` : '';
 }
@@ -75,9 +75,14 @@ export function action(s, p, a, now, clientVersion) {
     }
     return;
   }
-  if (s.game === BATTLE && a.type === 'battleMove') {
+  if (isBattle(s.game) && a.type === 'battleMove') {
     requireGame(r?.id === a.round,'対戦が切り替わりました。',409,'battleClosed');
     submitBattleMove(r,p.id,a,now);
+    return;
+  }
+  if (s.game === JOB_BATTLE && a.type === 'battleJob') {
+    requireGame(r?.id === a.round,'対戦が切り替わりました。',409,'battleClosed');
+    selectBattleJob(r,p.id,a.job,now);
     return;
   }
   requireGame((r?.id ?? null) === a.round && (r?.version ?? 0) === a.version,
@@ -87,25 +92,25 @@ export function action(s, p, a, now, clientVersion) {
       (a.type !== 'backSettings' || !playing(s)), '画面を移動できるのはホストです。');
     changeScreen(s,a.type === 'lobby' && a.scope !== undefined ? null : s.game);
   } else if (a.type === 'settings') {
-    requireGame(host && (s.game === TIER || s.game === BATTLE) && !playing(s),
+    requireGame(host && (s.game === TIER || isBattle(s.game)) && !playing(s),
       '設定変更は開始前か結果画面のホストのみです。');
-    if (s.game === BATTLE) {
-      s.battleSettings = battleSettings(battleRoster(s).settings,a.settings,gameMembers(s).slice(0,4).map(p => p.id));
+    if (isBattle(s.game)) {
+      s[battleStorage(s.game).settings] = battleSettings(battleRoster(s).settings,a.settings,gameMembers(s).slice(0,4).map(p => p.id),s.game === JOB_BATTLE);
     } else {
       s.settings = settingsFor(s,a.settings);
       alignRoles(s);
     }
   } else if (a.type === 'battleSwap' || a.type === 'battleRandom') {
     const {settings,teams} = battleRoster(s);
-    requireGame(host && s.game === BATTLE && settings.mode === 'teams' && !r,'開始前にホストがチームを変更できます。');
-    if (a.type === 'battleRandom') s.battleTeams = balanceTeams(shuffle(gameMembers(s).map(p => p.id)));
+    requireGame(host && isBattle(s.game) && settings.mode === 'teams' && !r,'開始前にホストがチームを変更できます。');
+    if (a.type === 'battleRandom') s[battleStorage(s.game).teams] = balanceTeams(shuffle(gameMembers(s).map(p => p.id)));
     else {
       const pink = teams.pink.indexOf(a.pink);
       const blue = teams.blue.indexOf(a.blue);
       requireGame(pink >= 0 && blue >= 0,'異なるチームから1人ずつ選んでください。');
       teams.pink[pink] = a.blue;
       teams.blue[blue] = a.pink;
-      s.battleTeams = teams;
+      s[battleStorage(s.game).teams] = teams;
     }
   } else if (a.type === 'start') {
     requireGame(host && s.game && !playing(s), '開始できるのは待機中か結果画面のホストです。');
@@ -115,9 +120,9 @@ export function action(s, p, a, now, clientVersion) {
     const ids = players.map(p => p.id);
     s.players = members(s);
     if (s.game === CIRCLE) s.round = startCircle(ids,s.host);
-    else if (s.game === BATTLE) {
+    else if (isBattle(s.game)) {
       const {settings,teams} = battleRoster(s);
-      s.round = startBattle(ids,settings,balanceTeams(ids,teams),now);
+      s.round = startBattle(ids,settings,balanceTeams(ids,teams),now,s.game === JOB_BATTLE);
     } else start(s,ids);
     s.round.colors = players.map(p => p.color);
     s.scope = s.round.id;
@@ -128,7 +133,7 @@ export function action(s, p, a, now, clientVersion) {
     r.host = s.host;
     requireGame(['place','bid','pass','reveal','lose','next'].includes(a.type),'不明な操作です。',400);
     actCircle(r,p.id,a);
-  } else if (s.game === BATTLE) {
+  } else if (isBattle(s.game)) {
     requireGame(false,'不明な操作です。',400);
   } else {
     requireGame(r && (r.ids.includes(p.id) || (host && a.type === 'next')), '次のラウンドをお待ちください。');

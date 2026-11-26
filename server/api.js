@@ -2,13 +2,13 @@ import {action,checkScope} from './game.js';
 import {readHistory} from './history.js';
 import {GameError, HEARTBEAT_MS, connected, isExpired, join, members, playing, reconcile, requireGame} from './room.js';
 import {update} from './store.js';
-import {BATTLE,GAME_IDS,TIER} from '../web/games.js';
+import {BATTLE,JOB_BATTLE,GAME_IDS,TIER,isBattle} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
 import {visible} from './visibility.js';
 import {advanceBattle} from './battle.js';
 
 function progressBattle(s,now) {
-  if (s.game !== BATTLE || !s.round) return;
+  if (!isBattle(s.game) || !s.round) return;
   const present = new Set(members(s).map(p => p.id));
   advanceBattle(s.round,now,new Set(s.round.ids.filter(id => !present.has(id))));
 }
@@ -18,6 +18,8 @@ export async function api(request, db, now = Date.now()) {
   const {pathname:path,searchParams} = new URL(request.url);
   const clientVersion = request.headers.get('X-App-Version');
   const oldClient = clientVersion && newerVersion(VERSION,clientVersion);
+  const unsupported = game => (game === JOB_BATTLE && (!clientVersion || oldClient)) ||
+    (game === BATTLE && clientVersion && newerVersion('3.0.0',clientVersion));
   try {
     if (path === '/api/version' && request.method === 'GET') return json({version:VERSION});
     if (path === '/api/join' && request.method === 'POST') {
@@ -29,7 +31,7 @@ export async function api(request, db, now = Date.now()) {
         progressBattle(s,now);
         return {id:p.id,token:p.token,pruneHistory:true};
       },now);
-      return reply(updated,updated.result.id,now,oldClient,{token:updated.result.token});
+      return reply(updated,updated.result.id,now,unsupported,{token:updated.result.token});
     }
     const isAction = path === '/api/action' && request.method === 'POST';
     const history = path.match(/^\/api\/history(?:\/([a-f0-9-]{36}))?$/i);
@@ -51,7 +53,7 @@ export async function api(request, db, now = Date.now()) {
       if (isAction) {
         requireGame(typeof a.id === 'string' && /^[a-f0-9-]{36}$/i.test(a.id),'操作IDが無効です。',400);
         if (!p.last.includes(a.id)) {
-          if (s.game === BATTLE && oldClient) {
+          if (unsupported(s.game)) {
             return {error:new GameError('アプリを更新してください。',409,'updateRequired')};
           }
           const resetHistory = a.type === 'resetHistory';
@@ -85,8 +87,8 @@ export async function api(request, db, now = Date.now()) {
       const record = await readHistory(db,now,history[1] ?? null,state.common.historyMinutes,
         game === 'all' ? null : game ?? state.game,revision);
       if (!record) return json({error:'この履歴は削除されたか、表示期限が過ぎました。',code:'historyExpired'},404);
-      if (oldClient && !history[1]) return json({at:now,record:record.filter(item=>item.gameId!==BATTLE)});
-      if (oldClient && record.gameId === BATTLE) return json({error:'アプリを更新してください。',code:'updateRequired'},409);
+      if (!history[1]) return json({at:now,record:record.filter(item=>!unsupported(item.gameId))});
+      if (unsupported(record.gameId)) return json({error:'アプリを更新してください。',code:'updateRequired'},409);
       return json({at:now,record});
     }
     if (a?.type === 'leave') return json({ok:true});
@@ -95,7 +97,7 @@ export async function api(request, db, now = Date.now()) {
         request.headers.get('X-Room-Online') === online) {
       return json({revision:updated.revision,at:now,version:VERSION,unchanged:true});
     }
-    return reply(updated,id,now,oldClient);
+    return reply(updated,id,now,unsupported);
   } catch (error) {
     if (error instanceof GameError) return json({error:error.message,code:error.code},error.status);
     console.error('Tier Studio request failed',error);
@@ -114,12 +116,12 @@ async function body(request) {
 function onlineMask(state,now) {
   return String(connected(state,now).reduce((mask,p)=>mask | (1 << p.color),0));
 }
-function reply({state,revision},id,now,oldClient,extra={}) {
+function reply({state,revision},id,now,unsupported,extra={}) {
   const view = visible(state,id,now);
-  if (oldClient) {
-    if (view.game === BATTLE) Object.assign(view,{game:null,round:null,playing:false});
-    if (view.selectedGame === BATTLE) view.selectedGame = TIER;
+  if (unsupported(view.game)) {
+    Object.assign(view,{game:null,round:null,playing:false});
     delete view.battle;
   }
+  if (unsupported(view.selectedGame)) view.selectedGame = TIER;
   return json({revision,at:now,version:VERSION,online:onlineMask(state,now),state:view,...extra});
 }

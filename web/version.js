@@ -1,4 +1,4 @@
-export const VERSION = '3.0.0';
+export const VERSION = '4.0.0';
 export function newerVersion(candidate, current = VERSION) {
   if (typeof candidate !== 'string' || !/^\d+\.\d+\.\d+$/.test(candidate)) return false;
   const installed = current.split('.').map(Number);

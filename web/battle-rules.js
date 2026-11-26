@@ -1,3 +1,5 @@
+import {JOB_ACTIONS,JOBS} from './battle-jobs.js';
+
 export const BATTLE_MODES = {royale:'バトルロイヤル', teams:'チーム戦', boss:'ボス戦'};
 export const TEAM_NAMES = {pink:'ピンクチーム', blue:'水色チーム', boss:'ボス', party:'チーム側'};
 export const BATTLE_CHOICES = {
@@ -22,28 +24,36 @@ export const ACTIONS = {
   sweep:{name:'全体攻撃', icon:'💥', cost:3},
   cover:{name:'かばう', icon:'🤝', cost:0, target:'ally', defense:true},
   give:{name:'渡す', icon:'➕', cost:1, target:'ally'},
+  ...JOB_ACTIONS,
 };
 
 export const areEnemies = (one, other) => one.id !== other.id && (one.team === null || one.team !== other.team);
 
+export const actionCost = (player,kind) => (kind === 'sweep' ? JOBS[player.job]?.sweepCost : null) ?? ACTIONS[kind].cost;
+
 export function availableActions(round, player) {
   const keys = ['charge','guard','strike'];
   const enemyCount = round.players.filter(other => areEnemies(player,other)).length;
-  if (round.settings.energy >= ACTIONS.sweep.cost && enemyCount > 1) keys.push('sweep');
+  if (round.settings.energy >= actionCost(player,'sweep') && enemyCount > 1) keys.push('sweep');
   if (['pink','blue','party'].includes(player.team)) keys.push('cover','give');
+  const jobAction = JOBS[player.job]?.action;
+  if (jobAction) keys.push(jobAction);
   return keys;
 }
 
 export function actionTargets(round, player, kind) {
   const targetType = ACTIONS[kind]?.target;
   if (!targetType) return [];
+  if (targetType === 'friendly') {
+    return round.players.filter(other => other.hp > 0 && (other.id === player.id || !areEnemies(player,other))).map(other => other.id);
+  }
   return round.players.filter(other => other.hp > 0 && other.id !== player.id &&
     areEnemies(player,other) === (targetType === 'enemy')).map(other => other.id);
 }
 
 export function canUseAction(round, player, kind) {
   return player.hp > 0 && availableActions(round,player).includes(kind) &&
-    player.energy >= ACTIONS[kind].cost &&
+    player.energy >= actionCost(player,kind) && (kind !== 'guard' || !player.cursed) &&
     (!ACTIONS[kind].defense || round.settings.defenseLimit === null || player.defense < round.settings.defenseLimit) &&
     (!ACTIONS[kind].target || actionTargets(round,player,kind).length > 0);
 }
