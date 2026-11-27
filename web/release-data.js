@@ -82,7 +82,10 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'「真・名前のないあのゲーム」を追加',changes:[
+  {version:VERSION,title:'「真・名前の知らないあのゲーム」に表記を統一',changes:[
+    {description:'ゲーム一覧やルールなどで表示するゲーム名の表記を統一しました。',gameIds:[JOB_BATTLE]},
+  ]},
+  {version:'4.0.0',title:'「真・名前の知らないあのゲーム」を追加',changes:[
     {description:'10種類の職業が登場し、攻撃や回復、反撃など職業ごとの能力で対戦が変化します。',gameIds:[JOB_BATTLE]},
     {description:'対戦ごとにランダムな3候補から職業を1つ選びます。',gameIds:[JOB_BATTLE]},
     {description:'バトルロイヤルとチーム戦に対応しています。',gameIds:[JOB_BATTLE]},
