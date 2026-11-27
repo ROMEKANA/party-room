@@ -19,10 +19,14 @@
     </nav>
   </header>
   <section id="entrance" class="entrance">
-    <form id="join" class="entry-card">
+    <form id="join" class="entry-card" novalidate>
       <h1>いつでもパーティールーム</h1>
-      <label>名前<input id="name" maxlength="40" autocomplete="nickname" required placeholder="20文字まで"></label>
-      <button class="primary">ルームに参加</button>
+      <label>名前<input id="name" autocomplete="nickname" required placeholder="8文字まで" aria-describedby="join-error"></label>
+      <fieldset id="avatar-fieldset">
+        <legend>プレイヤーアイコン</legend>
+        <div id="avatar-picker" class="avatar-picker"></div>
+      </fieldset>
+      <button type="submit" class="primary">ルームに参加</button>
       <p id="join-error" class="error" role="alert"></p>
     </form>
   </section>

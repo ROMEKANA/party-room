@@ -5,6 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../dist/server/index.js';
 import {releaseEntries} from '../web/release-data.js';
 import {VERSION} from '../web/version.js';
+import {PLAYER_AVATARS} from '../web/player-profile.js';
 import {GAMES} from '../web/games.js';
 import {api} from '../server/api.js';
 import {shuffle} from '../server/draw.js';
@@ -50,8 +51,8 @@ function harness() {
     const response = await api(request,db,now);
     return {...await response.json(),status:response.status};
   };
-  async function join(name) {
-    const result = await req('join',{name});
+  async function join(name,avatarId = 'cat') {
+    const result = await req('join',{name,avatarId});
     if (!result.token) return result;
     const {token} = result;
     const get = ()=>req('state',null,token);
@@ -75,6 +76,19 @@ test('Worker artifact serves UI, stores game in database binding and isolates pu
   const r=await worker.fetch(new Request(base+'/api/join',{method:'POST',body:'{"name":"Worker"}'}),{DB:h.db});
   assert.equal(r.status,200);
   assert.equal(h.raw().host,'Worker');
+});
+
+test('the packaged Worker serves ten independently addressable square avatar images',async()=>{
+  for (const id of Object.keys(PLAYER_AVATARS)) {
+    const response = await worker.fetch(new Request('https://tier.test/player-'+id+'.png'));
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('Content-Type'),'image/png');
+    const png = Buffer.from(await response.arrayBuffer());
+    assert.equal(png.toString('ascii',12,16),'IHDR');
+    assert.equal(png.readUInt32BE(16),192);
+    assert.equal(png.readUInt32BE(20),192);
+    assert.equal(png[25],6);
+  }
 });
 
 test('Worker serves the home screen name and correctly sized installation icons',async()=>{
@@ -277,7 +291,7 @@ test('mode 1 only asks the writer to confirm their turn and accepts one concurre
 
 test('mode 3 hides topics and authors until results, with incremental placement and fallback judge',async()=>{
   const {h,host,players,parent,setter,topic}=await round(3);
-  const watcher=await h.join('spectator');
+  const watcher=await h.join('watcher');
   assert.equal((await watcher.state()).players.find(p=>p.id===watcher.name).spectator,true);
   assert.equal(Object.hasOwn((await parent.state()).round,'candidate'),false);
   await setter.send('topic',{word:topic});
@@ -521,7 +535,7 @@ test('mode 2 input preview shows guesses at assigned tiers only to children when
   for (const enabled of [true,false]) {
     const {h,players,parent,setter,topic}=await round(2,enabled?{}:{peekBoardWhileTyping:false});
     const children=Object.values(players).filter(p=>p!==parent);
-    const watcher=await h.join('spectator');
+    const watcher=await h.join('watcher');
     await setter.send('topic',{word:topic});
     const submitted=(await children[0].state()).round.input;
     const waiting=(await children[1].state()).round.input;
@@ -1311,26 +1325,27 @@ test('update information keeps every past release and filters shared changes by 
   const all = releaseEntries();
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
-  assert.deepEqual(tier.map(entry=>entry.version),all.slice(6).map(entry=>entry.version));
-  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),['3.0.0']);
-  assert.deepEqual(circle.map(entry=>entry.version),['2.0.2','2.0.0']);
+  assert.deepEqual(tier.map(entry=>entry.version),[VERSION,...all.slice(7).map(entry=>entry.version)]);
+  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[VERSION,'3.0.0']);
+  assert.deepEqual(circle.map(entry=>entry.version),[VERSION,'2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.equal(all[0].title,'『ナンバークラッシュ』を追加');
-  assert.deepEqual(releaseEntries('number-clash').map(entry=>entry.version),[VERSION]);
-  assert.equal(all[1].version,'4.1.1');
-  assert.equal(all[1].title,'ホーム画面用のアプリアイコン・名称を追加');
-  assert.ok(all[1].changes.every(change=>change.gameIds.length===0));
-  assert.equal(all[2].title,'「真・名前の知らないあのゲーム」に表記を統一');
-  assert.equal(all[3].title,'「真・名前の知らないあのゲーム」を追加');
-  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),['4.0.1','4.0.0']);
-  assert.equal(all[4].title,'『名前の知らないあのゲーム』を追加');
-  assert.equal(all[5].version,'2.0.3');
-  assert.ok(all[5].changes.every(change=>change.gameIds.length===0));
-  assert.equal(tier[0].version,'2.0.2');
-  assert.equal(tier[1].version,'2.0.1');
+  assert.equal(all[0].title,'プレイヤーアイコンと表示UIを刷新');
+  assert.equal(all[1].title,'『ナンバークラッシュ』を追加');
+  assert.deepEqual(releaseEntries('number-clash').map(entry=>entry.version),[VERSION,'5.0.0']);
+  assert.equal(all[2].version,'4.1.1');
+  assert.equal(all[2].title,'ホーム画面用のアプリアイコン・名称を追加');
+  assert.ok(all[2].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[3].title,'「真・名前の知らないあのゲーム」に表記を統一');
+  assert.equal(all[4].title,'「真・名前の知らないあのゲーム」を追加');
+  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[VERSION,'4.0.1','4.0.0']);
+  assert.equal(all[5].title,'『名前の知らないあのゲーム』を追加');
+  assert.equal(all[6].version,'2.0.3');
+  assert.ok(all[6].changes.every(change=>change.gameIds.length===0));
+  assert.equal(tier[1].version,'2.0.2');
+  assert.equal(tier[2].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
   const shared = previous.changes.find(change=>change.gameIds.includes('circle-cross'));
-  assert.ok(circle[1].changes.includes(shared));
+  assert.ok(circle.find(entry=>entry.version===previous.version).changes.includes(shared));
   assert.ok(all.find(entry=>entry.version==='2.0.0').changes.some(change=>!change.gameIds.length));
   assert.ok([...tier[0].changes,...circle[0].changes].every(change=>change.gameIds.length));
 });
@@ -1372,7 +1387,7 @@ test('battle: every mode supports its prescribed counts and team setup stays bal
       assert.equal(rebalanced.blue.length,4);
       assert.ok(!rebalanced.blue.includes('2'));
       assert.equal((await host.send('start')).status,409);
-      await h.join('replacement');
+      await h.join('replace');
       const randomized = (await host.send('battleRandom')).state.battle.teams;
       assert.equal(new Set([...randomized.pink,...randomized.blue]).size,10);
       assert.equal(randomized.pink.length,5);
@@ -1458,7 +1473,14 @@ test('battle: secret actions, concurrent changes, grace deadlines, once-only his
 });
 
 test('battle: no-limit turns wait, reconnect preserves moves and non-host synchronization advances expired seats',async()=>{
-  const {h,host,sessions:[a,b,c,d]} = await battleRoom(['A','__proto__','C','D'],{mode:'teams',seconds:null});
+  const {h,host,sessions:[a,b,c,d]} = await battleRoom(['A','proto','C','D'],{mode:'teams',seconds:null});
+  // The old limit allowed this name, and a saved session must still handle it.
+  const legacy = h.raw();
+  legacy.players.find(p=>p.id === 'proto').id = '__proto__';
+  for (const team of Object.values(legacy.battleTeams ?? {})) {
+    if (team.includes('proto')) team[team.indexOf('proto')] = '__proto__';
+  }
+  h.sqlite.prepare('UPDATE room SET state=?').run(JSON.stringify(legacy));
   const started = (await host.send('start')).state.round;
   h.advance(1000);
   const movement = (session,turn,sequence,kind) => session.send('battleMove',{turn,sequence,kind});
@@ -1683,7 +1705,13 @@ test('Number Clash final judgment waits before writing one scoped history record
   const {record}=await host.history(match);
   assert.deepEqual(record.settings,{handSize:9,penalty:1,carryExtreme:true});
   assert.deepEqual(record.ranking,round.ranking);
-  assert.deepEqual(Object.keys(record).sort(),['id','gameId','endedAt','count','settings','ranking','expiresAt'].sort());
+  assert.deepEqual(Object.keys(record).sort(),['id','gameId','endedAt','count','settings','ranking','roster','expiresAt'].sort());
+  assert.deepEqual(record.roster.map(p=>[p.id,p.avatarId]),[['A','cat'],['B','cat']]);
+  assert.equal((await h.join('B','lemon')).token != null,true);
+  const after = await host.state();
+  assert.equal(after.players.find(p=>p.id==='B').avatarId,'lemon');
+  assert.equal(after.roundPlayers.find(p=>p.id==='B').avatarId,'cat');
+  assert.deepEqual((await host.history(round.id)).record.roster,record.roster);
   assert.equal((await h.req('history?game=tier',null,host.token)).record.length,0);
   assert.equal((await host.send('start')).status,200);
   const rematch=(await host.state()).round;
@@ -1695,4 +1723,57 @@ test('Number Clash final judgment waits before writing one scoped history record
   assert.equal((await host.send('lobby')).status,200);
   assert.equal((await host.send('choose',{choice:'number-clash'})).status,200);
   assert.equal((await host.state()).numberSettings.seconds,null);
+});
+
+
+test('player profiles validate and synchronize ten icons independently of player identity',async()=>{
+  const h = harness();
+  const names = ['A','八文字の表示確認','12345678','😀😀😀😀😀😀😀😀',' a\u0301bcdefgh ','B','C','D','E','F'];
+  for (const name of ['', ' ', '123456789','あいうえおかきくけ','😀'.repeat(9),'a\u0000b']) {
+    const rejected = await h.req('join',{name,avatarId:'cat'});
+    assert.equal(rejected.status,400);
+    assert.match(rejected.error,/1〜8文字/);
+  }
+  for (const avatarId of ['elsewhere','__proto__','constructor',false,null,1]) {
+    assert.equal((await h.req('join',{name:'A',avatarId})).status,400);
+  }
+  const ids = Object.keys(PLAYER_AVATARS);
+  const host = await h.join('A',ids[0]);
+  for (const [index,avatarId] of ids.entries()) {
+    if (index > 0) assert.ok((await h.join(names[index],avatarId)).token);
+    const room = await host.state();
+    assert.deepEqual(room.players.map(p=>p.avatarId),ids.slice(0,index+1));
+  }
+  assert.deepEqual((await host.state()).players.map(p=>p.id),names.map(name=>name.trim().normalize('NFC')));
+  const duplicate = await h.join('F','cat');
+  assert.ok(duplicate.token);
+  assert.equal((await host.state()).players.filter(p=>p.avatarId==='cat').length,2);
+  assert.equal((await duplicate.send('leave')).status,200);
+  assert.ok((await h.join('F','wolf')).token);
+  assert.equal((await host.state()).players.find(p=>p.id==='F').avatarId,'wolf');
+});
+
+test('old long names and avatar-less clients can resume an existing match',async()=>{
+  const h = harness();
+  const host = await h.join('A','rabbit');
+  await h.join('B','lemon');
+  await host.send('browse',{choice:'number-clash'});
+  await host.send('choose',{choice:'number-clash'});
+  assert.equal((await host.send('start')).status,200);
+  const legacy = h.raw();
+  const oldName = '以前の長い名前のまま';
+  legacy.round.ids[1] = legacy.round.players[1].id = legacy.players[1].id = oldName;
+  delete legacy.round.avatarIds;
+  delete legacy.players[1].avatarId;
+  h.sqlite.prepare('UPDATE room SET state=?').run(JSON.stringify(legacy));
+  const oldClient = {'X-App-Version':'5.0.0'};
+  const rejoin = await h.req('join',{name:oldName},null,oldClient);
+  assert.equal(rejoin.status,200);
+  assert.equal(rejoin.state.round.id,legacy.round.id);
+  assert.equal(rejoin.state.me,oldName);
+  assert.equal(rejoin.state.roundPlayers[1].avatarId,'rabbit');
+  const explicit = await h.req('join',{name:oldName,avatarId:'ghost'});
+  assert.equal(explicit.status,200);
+  assert.equal((await host.state()).roundPlayers[1].avatarId,'ghost');
+  assert.equal((await h.req('join',{name:oldName+'別'})).status,400);
 });

@@ -1,3 +1,4 @@
+import {resolveAvatarId} from '../web/player-profile.js';
 import {alignRoles, balanceTeams, battleRoster, battleStorage, connected, gameMembers, isOnline, leave, members, moveRolesFirst, playing, requireGame, settingsFor} from './room.js';
 import {start, topicAction} from './round.js';
 import {mode1} from './mode1.js';
@@ -136,6 +137,7 @@ export function action(s, p, a, now, clientVersion) {
       s.round = startNumberClash(ids,{...NUMBER_DEFAULTS,...s.numberSettings},now);
     } else start(s,ids);
     s.round.colors = players.map(p => p.color);
+    s.round.avatarIds = players.map(p => resolveAvatarId(p.avatarId,p.color));
     s.scope = s.round.id;
     s.legacyRound = null;
   } else if (s.game === CIRCLE) {

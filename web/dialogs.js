@@ -1,6 +1,7 @@
 import {holdButton} from './hold.js';
 import {COLORS,DEFAULTS,MODES,hasParent,rightNeighbor} from './config.js';
-import {$,button,cardDescription,el,fit,short} from './board.js';
+import {playerDisplay} from './player-display.js';
+import {$,button,cardDescription,el,fit} from './board.js';
 import {consensusDetail} from './consensus.js';
 import {historyDetail,historyList} from './history.js';
 import {JOB_BATTLE,isBattle,CIRCLE,NUMBER_CLASH,GAMES,GAME_IDS,HISTORY_MINUTES} from './games.js';
@@ -144,7 +145,7 @@ export function dialogs(getState,send,loadHistory) {
       ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.left]):null,
         s?.battle,s?.numberSettings,isBattle(s?.game)?s.players:null]:null,
-      ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online,p.spectator]),r?.phase]:null,
+      ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online,p.spectator,p.avatarId]),r?.phase]:null,
       kind==='gameList'?[s?.selectedGame,s?.host]:null,
       kind==='commonSettings'?[s?.common,s?.host]:null]);
     if (!force && key===lastKey) return;
@@ -439,9 +440,10 @@ export function dialogs(getState,send,loadHistory) {
       }
       body.append(menu);
     } else if (kind==='playerManagement') {
-      const players = el('div','member-grid');
+      const players = el('div','member-grid player-management-grid');
       for (const p of s.players.filter(p=>!p.left)) {
-        const control = button(short(p.id)+(p.id===s.host?' 👑':'')+(p.spectator?' · 観戦':''),()=>open('player',{id:p.id}));
+        const roles = [p.id === s.host ? 'ホスト' : '',p.spectator ? '観戦' : ''].filter(Boolean);
+        const control = playerDisplay({...p,roles},{me:s.me,select:id=>open('player',{id})});
         control.disabled = s.host!==s.me || !p.online || p.id===s.me;
         players.append(control);
       }

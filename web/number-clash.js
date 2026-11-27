@@ -1,4 +1,5 @@
 import {button,el} from './board.js';
+import {playerAvatar} from './player-display.js';
 import {holdButton} from './hold.js';
 import {NUMBER_BASIC_FIELDS,NUMBER_CHOICES,handCards,pointCards} from './number-clash-rules.js';
 import {setting} from './settings.js';
@@ -41,15 +42,17 @@ export function numberSettings(root,s,send,tab = null) {
   }
 }
 
-export function numberRanking(root,ranking) {
+export function numberRanking(root,ranking,roster = []) {
   const list = el('ol','number-ranking');
   list.setAttribute('aria-label','最終ランキング');
   for (const {id,rank,score} of ranking) {
     const name = el('strong','number-rank-name',id);
     name.title = id;
+    const identity = el('span','number-rank-person');
+    identity.append(playerAvatar(roster.find(p=>p.id === id) ?? {id}),name);
     const row = el('li','number-rank');
     row.value = rank;
-    row.append(el('span','number-rank-place',rank+'位'),name,el('span','number-rank-score',signed(score)+'点'));
+    row.append(el('span','number-rank-place',rank+'位'),identity,el('span','number-rank-score',signed(score)+'点'));
     list.append(row);
   }
   root.append(list);
@@ -61,7 +64,7 @@ export function numberHistory(root,record) {
     settings.append(el('dt','',title),el('dd','',formatSetting(key,record.settings[key])));
   }
   root.append(settings);
-  numberRanking(root,record.ranking);
+  numberRanking(root,record.ranking,record.roster);
 }
 
 const pointsCard = (value,used=false) => el('span','number-card number-point '+
@@ -78,7 +81,7 @@ export function numberClashUI() {
     const r = s.round;
     if (r.phase === 'result') {
       reset();
-      numberRanking(root,r.ranking);
+      numberRanking(root,r.ranking,s.roundPlayers);
       return;
     }
     if (board?.parentElement !== root || board.dataset.match !== r.id) {

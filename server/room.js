@@ -3,6 +3,7 @@ import {BATTLE,JOB_BATTLE,isBattle,CIRCLE,DEFAULT_HISTORY_MINUTES,GAMES,TIER} fr
 import {BATTLE_DEFAULTS} from '../web/battle-rules.js';
 import {JOB_BATTLE_FIXED} from '../web/battle-jobs.js';
 import {randomTopic} from './topics.js';
+import {PLAYER_NAME_ERROR,isAvatarId,normalizePlayerName,resolveAvatarId,validPlayerName} from '../web/player-profile.js';
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
 export const HEARTBEAT_MS = 6_000;
@@ -104,9 +105,14 @@ function reconcileBattleRoster(s) {
 }
 
 export function roundPlayers(s, now) {
-  return s.round.ids.map((id,index) => ({
-    id, color:s.round.colors[index], online:isOnline(s.players.find(p => p.id === id),now),
-  }));
+  const active = playing(s);
+  return s.round.ids.map((id,index) => {
+    const player = s.players.find(p => p.id === id);
+    const color = s.round.colors[index];
+    const avatarId = resolveAvatarId(active ? player?.avatarId ?? s.round.avatarIds?.[index] :
+      s.round.avatarIds?.[index],color);
+    return {id,color,avatarId,online:isOnline(player,now)};
+  });
 }
 const currentNominees = settings => ({
   parent:settings.nominatedParent, setter:settings.nominatedSetter,
@@ -161,10 +167,12 @@ export function reconcile(s, now) {
   reconcileBattleRoster(s);
 }
 
-export function join(s, name, now, token) {
-  const id = typeof name === 'string' ? name.trim().normalize('NFC') : '';
-  requireGame(id && [...id].length <= 20 && !/[\p{Cc}]/u.test(id), '名前を1〜20文字で入力してください。', 400);
+export function join(s, name, now, token, avatarId) {
+  const id = normalizePlayerName(name);
   let p = s.players.find(person => person.id === id);
+  const existing = Boolean(p && (!p.left || (playing(s) && s.round.ids.includes(id))));
+  requireGame(validPlayerName(id,existing),PLAYER_NAME_ERROR,400);
+  requireGame(avatarId === undefined || isAvatarId(avatarId),'プレイヤーアイコンを選び直してください。',400);
   if (p?.token && token === p.token && s.round?.mode === 4 && playing(s) && s.round.ids.includes(id)) {
     p.seen = Math.max(p.seen,now);
     return p;
@@ -182,6 +190,7 @@ export function join(s, name, now, token) {
       s.players.push(p);
     } else p.color = color;
   }
+  p.avatarId = resolveAvatarId(avatarId ?? p.avatarId,p.color);
   p.token = crypto.randomUUID();
   p.seen = Math.max(p.seen ?? now,now);
   p.left = false;

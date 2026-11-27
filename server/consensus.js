@@ -90,7 +90,6 @@ export function consensusView(r, id, input) {
   } else if (r.phase === 'result') {
     view.cards = consensusCards(r).map(({id,word,owner,answer}) => ({id,word,owner,answer}));
     view.result = r.result;
-    view.players = r.ids.map((id,index) => ({id,color:r.colors[index]}));
   }
   return view;
 }

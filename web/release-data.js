@@ -1,4 +1,4 @@
-import {BATTLE,JOB_BATTLE,CIRCLE,NUMBER_CLASH,TIER} from './games.js';
+import {BATTLE,JOB_BATTLE,CIRCLE,NUMBER_CLASH,TIER,GAME_IDS} from './games.js';
 import {VERSION} from './version.js';
 
 const legacyReleases = [
@@ -82,7 +82,13 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'『ナンバークラッシュ』を追加',changes:[
+  {version:VERSION,title:'プレイヤーアイコンと表示UIを刷新',changes:[
+    {description:'10種類のイラストから、入室前にプレイヤーアイコンを選べるようにしました。',gameIds:[]},
+    {description:'新規入室時の名前は最大8文字になりました。',gameIds:[]},
+    {description:'プレイヤー名とホスト・親などの属性を、画面の広さに合わせて読みやすく表示します。',gameIds:GAME_IDS},
+    {description:'全ゲームのプレイヤー表示を統一し、行動済みのチェックはアイコンの右下に表示します。',gameIds:GAME_IDS},
+  ]},
+  {version:'5.0.0',title:'『ナンバークラッシュ』を追加',changes:[
     {description:'2〜6人で、手札から数字カードを同時に出す心理戦を遊べます。手札は9枚・12枚・15枚から選べます。',gameIds:[NUMBER_CLASH]},
     {description:'同じ数字を出すと、設定した点数だけ失点します。対象の最大値・最小値が重なると得点カードを持ち越すルールも、ON・OFFを切り替えられます。',gameIds:[NUMBER_CLASH]},
     {description:'時間制限付きの同時ターン制で進みます。残りの得点カードはボタンの長押しで確認できます。',gameIds:[NUMBER_CLASH]},

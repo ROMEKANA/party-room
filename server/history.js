@@ -1,4 +1,5 @@
 import {consensusCards} from './consensus.js';
+import {resolveAvatarId} from '../web/player-profile.js';
 import {MODES} from '../web/config.js';
 import {lifeStatus, orderedCards} from './round.js';
 
@@ -21,22 +22,25 @@ export function resetHistory(db,revision,game) {
 export function snapshot(s, now) {
   const r = s.round;
   const header = {id:r.id, gameId:s.game, endedAt:now, count:r.ids.length};
+  const roster = r.ids.map((id,index) => ({
+    id,color:r.colors[index],avatarId:resolveAvatarId(r.avatarIds?.[index],r.colors[index]),
+  }));
   if (s.game === CIRCLE) {
     const board = circleView(r,null);
     const winner = board.players[board.winner].name;
     const summary = {...header, winner, rounds:board.round};
-    return {summary,detail:{...summary,board}};
+    return {summary,detail:{...summary,board,roster}};
   }
   if (isBattle(s.game)) {
     const summary = {...header,mode:r.settings.mode,turn:r.turn,outcome:r.outcome};
     const {settings,players,boss,previous} = battleView(r,null);
-    return {summary,detail:{...summary,settings,players,boss,previous}};
+    return {summary,detail:{...summary,settings,players,boss,previous,roster}};
   }
   if (s.game === NUMBER_CLASH) {
-    return {summary:header,detail:{...header,settings:numberSettingsSummary(r.settings),ranking:numberRankings(r)}};
+    return {summary:header,detail:{...header,settings:numberSettingsSummary(r.settings),ranking:numberRankings(r),roster}};
   }
   const scores = r.scores;
-  const players = r.ids.map((id,index) => ({id,color:r.colors[index],...(scores ? {score:scores[id]} : {})}));
+  const players = roster.map(player => ({...player,...(scores ? {score:scores[player.id]} : {})}));
   const summary = {
     ...header, topic:r.topic, mode:r.mode, win:r.result.win,
     difficulty:r.settings.difficulty, cardsPerPlayer:r.settings.cardsPerPlayer,

@@ -283,11 +283,11 @@ export function battleView(round, id, roster = []) {
       jobDraft:round.jobDraft[round.ids.indexOf(id)] ?? null,
       jobsReady:round.jobDraft.filter(entry=>entry.chosen !== null).length,
     } : {}),
-    players:round.players.map((player,index) => ({
-      ...player,color:round.colors?.[index],
-      online:roster.find(entry => entry.id === player.id)?.online ?? false,
-      submitted:Object.hasOwn(round.moves,player.id),
-    })),
+    players:round.players.map((player,index) => {
+      const display = roster[index];
+      return {...player,color:round.colors?.[index],avatarId:display?.avatarId,
+        online:display?.online ?? false,submitted:Object.hasOwn(round.moves,player.id)};
+    }),
     ownMove:current,
   };
 }

@@ -1,9 +1,12 @@
 import {VERSION,newerVersion} from './version.js';
+import {isAvatarId} from './player-profile.js';
 
 const TOKEN = 'tier-studio-session';
 const NAME = 'tier-studio-name';
+const AVATAR = 'party-room-avatar';
 const REFRESH = 'party-room-refresh';
 export const storedName = () => localStorage.getItem(NAME) ?? '';
+export const storedAvatarId = () => localStorage.getItem(AVATAR);
 const makeId = () => globalThis.crypto.randomUUID?.() ??
   '10000000-1000-4000-8000-100000000000'.replace(/[018]/g,c =>
     (Number(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c)/4)))).toString(16));
@@ -90,14 +93,16 @@ export function connect(onState,onError,onClose,onUpdate) {
       else if (token) schedule(0);
     }
   }
-  async function join(name, automatic = false) {
+  async function join(name, avatarId, automatic = false) {
     if (!automatic && available()) throw Object.assign(new Error('アプリを更新してください。'),{code:'updateRequired'});
-    const data = await request('join',{name});
+    const data = await request('join',{name,avatarId},automatic ? token : null);
     generation++;
     revision = at = -1;
     token = data.token;
     sessionStorage.setItem(TOKEN,token);
     localStorage.setItem(NAME,data.state.me);
+    const joinedAvatar = data.state.players?.find(p=>p.id === data.state.me)?.avatarId ?? avatarId;
+    if (isAvatarId(joinedAvatar)) localStorage.setItem(AVATAR,joinedAvatar);
     accept(data);
     schedule();
   }
@@ -111,7 +116,7 @@ export function connect(onState,onError,onClose,onUpdate) {
         published = target;
         notifyUpdate();
       } else if (refreshName) {
-        try { await join(refreshName,true); refreshName = null; }
+        try { await join(refreshName,undefined,true); refreshName = null; }
         catch (error) {
           stop('更新後に再接続できませんでした。名前を確認して、もう一度参加してください。');
         }

@@ -9,6 +9,7 @@ import {view as circleView} from './circle.js';
 import {battleView} from './battle.js';
 import {numberView} from './number-clash.js';
 import {NUMBER_DEFAULTS} from '../web/number-clash-rules.js';
+import {resolveAvatarId} from '../web/player-profile.js';
 import {DEFAULTS,TIERS} from '../web/config.js';
 
 export function visible(s, id, now) {
@@ -24,7 +25,7 @@ export function visible(s, id, now) {
     game:s.game, selectedGame:s.selectedGame, scope:s.scope,
     common:s.common, playing:active,
     ...(r && active ? {tierRoundSettings:r.settings} : {}),
-    ...(r && !active ? {roundPlayers:roundPlayers(s,now)} : {}),
+    ...(s.round && !active ? {roundPlayers:roundPlayers(s,now)} : {}),
     tiers:TIERS[(r?.settings ?? s.settings).difficulty],
     startProblem:currentStartProblem(s,now),
     players:members(s).map(p => {
@@ -39,7 +40,7 @@ export function visible(s, id, now) {
         mark = r.cards.filter(c => c.owner === p.id && !c.word).length || 'done';
       }
       if (s.game === CIRCLE && s.round?.turn === p.id) mark = 'turn';
-      return {id:p.id,color:p.color,online:isOnline(p,now),left:p.left,mark,
+      return {id:p.id,color:p.color,avatarId:resolveAvatarId(p.avatarId,p.color),online:isOnline(p,now),left:p.left,mark,
         spectator:Boolean(s.game && !gameIds.includes(p.id))};
     }),
     round:null,
@@ -52,7 +53,6 @@ export function visible(s, id, now) {
     state.battle = battleRoster(s);
     if (s.round) {
       state.round = battleView(s.round,id,roundPlayers(s,now));
-      if (!active) state.roundPlayers = roundPlayers(s,now);
     }
     return state;
   }
@@ -69,6 +69,7 @@ export function visible(s, id, now) {
   if (!r) return state;
   if (r.mode === 4) {
     state.round = consensusView(r,id,currentInput(r,id));
+    if (!active) state.round.players = state.roundPlayers.map(({id,color,avatarId})=>({id,color,avatarId}));
     return state;
   }
   const result = r.phase === 'result';

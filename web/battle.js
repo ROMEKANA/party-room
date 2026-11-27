@@ -1,6 +1,7 @@
 import {setting} from './settings.js';
 import {turnIsOpen,turnTimeFraction,turnTimeLabel} from './timed-turn.js';
-import {button,el,PALETTE} from './board.js';
+import {button,el} from './board.js';
+import {playerDisplay} from './player-display.js';
 import {ACTIONS,BATTLE_CHOICES,BATTLE_MODES,TEAM_NAMES,actionCost,actionTargets,availableActions,canUseAction} from './battle-rules.js';
 
 import {JOB_BATTLE} from './games.js';
@@ -90,11 +91,10 @@ export function battleSettings(root,s,send,tab = null) {
             }
           }
         };
-        const item = canSwap ? button('',choose,'battle-team-person') : el('div','battle-team-person');
-        const icon = el('span','avatar',[...id][0]);
-        icon.style.setProperty('--avatar',PALETTE[player.color]);
-        item.append(icon,el('span','battle-team-name',id));
-        item.title = id;
+        const item = playerDisplay(player,{
+          me:s.me,select:canSwap ? choose : null,selectionLabel:()=>id,
+        });
+        item.classList.add('battle-team-person');
         if (canSwap) controls.set(id,item);
         members.append(item);
       }
@@ -160,6 +160,11 @@ function effectText(effects) {
     .map(([kind,name])=>name+(effects.length > 1 ? counts.get(kind) : '')).join(' ');
 }
 
+export function battlePlayerMark(round,player) {
+  if (['jobs','review','result'].includes(round.phase) || player.hp === 0 || !player.online) return null;
+  return player.submitted ? 'done' : 'pending';
+}
+
 function playerCard(player,s,round,review,animate,onTarget) {
   const card = onTarget ? button('',()=>onTarget(player.id),'battle-card') : el('div','battle-card');
   card.classList.add('battle-'+(player.team ?? 'solo'));
@@ -169,9 +174,7 @@ function playerCard(player,s,round,review,animate,onTarget) {
   const action = last && Object.hasOwn(last,player.id) ? last[player.id] : null;
   const name = el('strong','battle-name',player.id);
   const job = JOBS[player.job];
-  const flag = player.hp === 0 ? '脱落' : review ? '' : !player.online ? '切断' : player.submitted ? '✓' : '…';
-  const status = el('span','battle-card-status',flag);
-  status.title = flag === '✓' ? '選択済み' : flag === '…' ? '未選択' : flag;
+  const flag = player.hp === 0 ? '脱落' : !review && !player.online ? '切断' : '';
   const identity = el('div','battle-identity');
   identity.append(name);
   if (job) {
@@ -185,7 +188,7 @@ function playerCard(player,s,round,review,animate,onTarget) {
       identity.append(curse);
     }
   }
-  if (flag) identity.append(status);
+  if (flag) identity.append(el('span','battle-card-status',flag));
   if (!review && action) {
     const icon = el('span','battle-last-icon',ACTIONS[action.kind].icon);
     icon.title = '前のターン '+ACTIONS[action.kind].name;
@@ -207,7 +210,7 @@ function playerCard(player,s,round,review,animate,onTarget) {
       card.append(el('span','battle-turn-action',turnAction),el('span','battle-turn-result',result));
       card.title = [player.id,turnAction,result,...action.effects.map(effect=>effect.target+' '+(job ? jobEffect(effect) : effectNames[effect.result]))].filter(Boolean).join(' ／ ');
     }
-  } else card.title = player.id+' ／ '+status.title;
+  } else card.title = [player.id,flag].filter(Boolean).join(' ／ ');
   if (job) {
     card.title = [job.name,card.title,job.description].filter(Boolean).join(' ／ ');
     if (!onTarget) card.append(el('span','battle-job-name',job.name));

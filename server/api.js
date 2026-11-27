@@ -20,18 +20,17 @@ const json = (value,status = 200) => Response.json(value,{status,headers:{'Cache
 export async function api(request, db, now = Date.now()) {
   const {pathname:path,searchParams} = new URL(request.url);
   const clientVersion = request.headers.get('X-App-Version');
-  const oldClient = clientVersion && newerVersion(VERSION,clientVersion);
-  const unsupported = game => (game === JOB_BATTLE && (!clientVersion || oldClient)) ||
+  const unsupported = game => (game === JOB_BATTLE && (!clientVersion || newerVersion('5.0.0',clientVersion))) ||
     (game === BATTLE && clientVersion && newerVersion('3.0.0',clientVersion)) ||
     (game === NUMBER_CLASH && (!clientVersion || newerVersion('5.0.0',clientVersion)));
   try {
     if (path === '/api/version' && request.method === 'GET') return json({version:VERSION});
     if (path === '/api/join' && request.method === 'POST') {
-      const {name} = await body(request);
+      const {name,avatarId} = await body(request);
       const token = request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9-]{36})$/i)?.[1];
       const updated = await update(db,s => {
         reconcile(s,now);
-        const p = join(s,name,now,token);
+        const p = join(s,name,now,token,avatarId);
         progressTurn(s,now);
         return {id:p.id,token:p.token,pruneHistory:true};
       },now);

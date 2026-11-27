@@ -1,8 +1,4 @@
-import {avatars,el} from './board.js';
-
-export function consensusPlayers(root,players,me,selected,select) {
-  avatars({me,players},root,{selected,select});
-}
+import {el} from './board.js';
 
 export function consensusBoard(r, player) {
   const placements = r.result.boards[r.players.findIndex(p => p.id === player)];

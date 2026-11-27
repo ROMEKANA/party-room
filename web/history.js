@@ -3,9 +3,10 @@ import {BATTLE_MODES} from './battle-rules.js';
 import {battleHistory,battleOutcome} from './battle.js';
 import {numberHistory} from './number-clash.js';
 import {circleTable} from './circle.js';
-import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
+import {consensusBoard,consensusCount,consensusOutcome} from './consensus.js';
 import {MODES} from './config.js';
-import {avatars,button,cardDescription,drawRows,el,fit,progress,resultSummary,showLife,showProgress} from './board.js';
+import {renderPlayers} from './player-display.js';
+import {button,cardDescription,drawRows,el,fit,progress,resultSummary,showLife,showProgress} from './board.js';
 
 const DIFFICULTIES = {easy:'簡単',normal:'普通',hard:'難しい'};
 const time = new Intl.DateTimeFormat('ja-JP',{
@@ -43,8 +44,15 @@ export function historyList(body,records,select,scrollTop) {
 }
 export function historyDetail(body,record,me,card,selectCard,selectedPlayer,selectPlayer) {
   if (record.gameId===NUMBER_CLASH) return numberHistory(body,record);
-  if (isBattle(record.gameId)) return battleHistory(body,record);
+  const roster = el('section','players');
+  roster.setAttribute('aria-label','対戦時の参加者');
+  body.append(roster);
+  if (isBattle(record.gameId)) {
+    renderPlayers(roster,record.roster ?? record.players.map(({id,color})=>({id,color})),{me});
+    return battleHistory(body,record);
+  }
   if (record.gameId===CIRCLE) {
+    renderPlayers(roster,record.roster ?? record.board.players.map(player=>({id:player.name})),{me});
     body.append(el('h3','circle-heading',record.winner+'の勝利'),
       el('p','circle-info',`${record.count}人 · ${record.rounds}ラウンド`));
     circleTable(body,record.board);
@@ -53,12 +61,11 @@ export function historyDetail(body,record,me,card,selectCard,selectedPlayer,sele
   const {result,players,cards,tiers} = record;
   const r = {...record,...result,phase:'result',
     scores:Object.fromEntries(players.filter(p=>p.score != null).map(p=>[p.id,p.score]))};
-  const roster = el('section','players');
-  roster.setAttribute('aria-label','ラウンドの参加者');
   const consensus = r.mode===4;
   const player = selectedPlayer ?? players[0].id;
-  if (consensus) consensusPlayers(roster,players,me,player,selectPlayer);
-  else avatars({me,round:r,players:players.map(p=>({...p,online:true}))},roster);
+  renderPlayers(roster,players.map(p=>({...p,roles:p.id === r.parent ? ['親'] : []})),{
+    me,selected:player,select:consensus ? selectPlayer : null,selectionLabel:id=>id+'のTier表',
+  });
   const intro = el('section','intro');
   const title = el('div','title-line');
   const life = el('span','pill');
@@ -81,7 +88,7 @@ export function historyDetail(body,record,me,card,selectCard,selectedPlayer,sele
   const resultBox = el('div','deck');
   resultBox.append(el('strong','deck-top',consensus?consensusOutcome(result):r.win?'クリア！':'ラウンド終了 · 失敗'));
   if (!consensus) resultBox.append(el('p','deck-message',resultSummary(r)));
-  body.append(roster,intro,board,resultBox);
+  body.append(intro,board,resultBox);
   if (card) {
     [...board.querySelectorAll('.tile')].find(tile=>tile.title===card.word)?.setAttribute('aria-pressed','true');
     const detail = el('section','history-card');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {connect} from '../web/sync.js';
+import {connect,storedAvatarId} from '../web/sync.js';
 import {VERSION} from '../web/version.js';
 
 test('an update waits for the final result, reloads once and rejoins by name',async t=>{
@@ -29,7 +29,7 @@ test('an update waits for the final result, reloads once and rejoins by name',as
     fetch:async(url,options)=>{
       calls.push([url,options]);
       return Response.json({revision:++now,at:now,version:published,online:'1',
-        state:{playing,me:'ホスト'},...(url==='/api/join'?{token:'new-session'}:{})});
+        state:{playing,me:'ホスト',players:[{id:'ホスト',avatarId:'ghost'}]},...(url==='/api/join'?{token:'new-session'}:{})});
     },
   };
   for (const [key,value] of Object.entries(browser)) {
@@ -67,6 +67,8 @@ test('an update waits for the final result, reloads once and rejoins by name',as
   assert.equal(url,'/api/join');
   assert.deepEqual(JSON.parse(options.body),{name:'ホスト'});
   assert.equal(resumed,'ホスト');
+  assert.equal(storedAvatarId(),'ghost');
+  assert.equal(local.getItem('tier-studio-name'),'ホスト');
   assert.equal(session.getItem('tier-studio-session'),'new-session');
   assert.equal(session.getItem('party-room-refresh'),undefined);
 });
