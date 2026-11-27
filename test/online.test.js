@@ -77,6 +77,38 @@ test('Worker artifact serves UI, stores game in database binding and isolates pu
   assert.equal(h.raw().host,'Worker');
 });
 
+test('Worker serves the home screen name and correctly sized installation icons',async()=>{
+  const get = path => worker.fetch(new Request(new URL(path,'https://tier.test')));
+  const html = await (await get('/')).text();
+  assert.match(html,/<title>いつでもパーティールーム<\/title>/);
+  assert.match(html,/<meta name="application-name" content="いつパ">/);
+  assert.match(html,/<meta name="apple-mobile-web-app-title" content="いつパ">/);
+  const [,manifestPath] = html.match(/<link rel="manifest" href="([^"]+)">/);
+  const [,applePath] = html.match(/<link rel="apple-touch-icon" href="([^"]+)" sizes="180x180">/);
+  const [,faviconPath] = html.match(/<link rel="icon" href="([^"]+)" type="image\/png" sizes="32x32">/);
+  const response = await get(manifestPath);
+  assert.equal(response.headers.get('Content-Type'),'application/manifest+json; charset=utf-8');
+  const manifest = await response.json();
+  assert.equal(manifest.name,'いつパ');
+  assert.equal(manifest.short_name,'いつパ');
+  assert.equal(manifest.start_url,'/');
+  assert.equal(manifest.display ?? 'browser','browser');
+  assert.deepEqual(manifest.icons.map(({sizes,purpose})=>[sizes,purpose]),[
+    ['192x192','any'],['512x512','any'],['512x512','maskable'],
+  ]);
+
+  for (const {src,sizes} of [...manifest.icons,{src:applePath,sizes:'180x180'},{src:faviconPath,sizes:'32x32'}]) {
+    const icon = await get(src);
+    assert.equal(icon.status,200);
+    assert.equal(icon.headers.get('Content-Type'),'image/png');
+    assert.equal(icon.headers.get('Cache-Control'),'no-store');
+    const bytes = Buffer.from(await icon.arrayBuffer());
+    assert.deepEqual(bytes,readFileSync(new URL(src,new URL('../web/',import.meta.url))));
+    assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+    assert.equal(`${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`,sizes);
+  }
+});
+
 test('capacity, same-name takeover, persistence, host grace, manual transfer and kick',async()=>{
   const h=harness();
   const ps=await Promise.all(Array.from({length:10},(_,i)=>h.join('p'+i)));
@@ -1279,16 +1311,18 @@ test('update information keeps every past release and filters shared changes by 
   const all = releaseEntries();
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
-  assert.deepEqual(tier.map(entry=>entry.version),all.slice(4).map(entry=>entry.version));
+  assert.deepEqual(tier.map(entry=>entry.version),all.slice(5).map(entry=>entry.version));
   assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),['3.0.0']);
   assert.deepEqual(circle.map(entry=>entry.version),['2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.equal(all[0].title,'「真・名前の知らないあのゲーム」に表記を統一');
-  assert.equal(all[1].title,'「真・名前の知らないあのゲーム」を追加');
-  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[VERSION,'4.0.0']);
-  assert.equal(all[2].title,'『名前の知らないあのゲーム』を追加');
-  assert.equal(all[3].version,'2.0.3');
-  assert.ok(all[3].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[0].title,'ホーム画面用のアプリアイコン・名称を追加');
+  assert.ok(all[0].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[1].title,'「真・名前の知らないあのゲーム」に表記を統一');
+  assert.equal(all[2].title,'「真・名前の知らないあのゲーム」を追加');
+  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),['4.0.1','4.0.0']);
+  assert.equal(all[3].title,'『名前の知らないあのゲーム』を追加');
+  assert.equal(all[4].version,'2.0.3');
+  assert.ok(all[4].changes.every(change=>change.gameIds.length===0));
   assert.equal(tier[0].version,'2.0.2');
   assert.equal(tier[1].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');

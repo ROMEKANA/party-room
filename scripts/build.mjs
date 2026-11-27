@@ -7,14 +7,22 @@ for (const name of ['web/config.js','web/placement.js','web/games.js','web/versi
   const exports = [...imports.matchAll(/^export (?:async )?(?:class|function|const) (\w+)/gm)].map(match=>match[1]);
   modules.push(`modules[${JSON.stringify(name)}] = () => cache[${JSON.stringify(name)}] ??= (() => {\n${imports.replace(/^export /gm,'')}\nreturn {${exports.join(',')}};\n})();`);
 }
-const assets = Object.fromEntries(await Promise.all((await readdir('web')).map(async file=>[file,await readFile('web/'+file,'utf8')])));
+const assetEntries = await Promise.all((await readdir('web')).map(async file => {
+  const content = await readFile('web/'+file);
+  const value = file.endsWith('.png')
+    ? `Uint8Array.from(atob(${JSON.stringify(content.toString('base64'))}), byte => byte.charCodeAt(0))`
+    : JSON.stringify(content.toString('utf8'));
+  return `  ${JSON.stringify(file)}: ${value}`;
+}));
 await mkdir('dist/server',{recursive:true});
 await mkdir('dist/.openai',{recursive:true});
 await copyFile('.openai/hosting.json','dist/.openai/hosting.json');
 await writeFile('dist/server/index.js',`
 const modules = {}, cache = {};
 ${modules.join('\n')}
-const assets = ${JSON.stringify(assets)};
+const assets = {
+${assetEntries.join(',\n')}
+};
 const {api} = modules['server/api.js']();
 const {staticResponse} = modules['server/assets.js']();
 export default {fetch(request, env) {

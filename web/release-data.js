@@ -82,7 +82,10 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'「真・名前の知らないあのゲーム」に表記を統一',changes:[
+  {version:VERSION,title:'ホーム画面用のアプリアイコン・名称を追加',changes:[
+    {description:'スマートフォンやタブレットのホーム画面に追加すると「いつパ」と表示されます。ホーム画面とブラウザーのタブに、黄色いひつじのアイコンを使います。',gameIds:[]},
+  ]},
+  {version:'4.0.1',title:'「真・名前の知らないあのゲーム」に表記を統一',changes:[
     {description:'ゲーム一覧やルールなどで表示するゲーム名の表記を統一しました。',gameIds:[JOB_BATTLE]},
   ]},
   {version:'4.0.0',title:'「真・名前の知らないあのゲーム」を追加',changes:[

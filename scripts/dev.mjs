@@ -51,7 +51,7 @@ const db = {
   },
 };
 const assets = Object.fromEntries(readdirSync('web').map(name => [
-  name, () => readFileSync(new URL('../web/'+name,import.meta.url),'utf8'),
+  name, () => readFileSync(new URL('../web/'+name,import.meta.url)),
 ]));
 const port = Number(process.env.PORT ?? process.argv[process.argv.indexOf('--port')+1]) || 4173;
 const server = createServer(async (incoming,outgoing) => {
