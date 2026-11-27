@@ -3,10 +3,12 @@ import {currentInput, lifeStatus, orderedCards} from './round.js';
 import {consensusProgress,consensusView} from './consensus.js';
 import {currentCardId} from './placement.js';
 import {judgeId} from './mode23.js';
-import {isBattle,CIRCLE,TIER} from '../web/games.js';
+import {isBattle,CIRCLE,NUMBER_CLASH,TIER} from '../web/games.js';
 import {currentStartProblem} from './game.js';
 import {view as circleView} from './circle.js';
 import {battleView} from './battle.js';
+import {numberView} from './number-clash.js';
+import {NUMBER_DEFAULTS} from '../web/number-clash-rules.js';
 import {DEFAULTS,TIERS} from '../web/config.js';
 
 export function visible(s, id, now) {
@@ -51,6 +53,16 @@ export function visible(s, id, now) {
     if (s.round) {
       state.round = battleView(s.round,id,roundPlayers(s,now));
       if (!active) state.roundPlayers = roundPlayers(s,now);
+    }
+    return state;
+  }
+  if (s.game === NUMBER_CLASH) {
+    state.numberSettings = {...NUMBER_DEFAULTS,...s.numberSettings};
+    if (s.round) {
+      state.round = numberView(s.round,id);
+      state.roundPlayers = roundPlayers(s,now).map(p=>({
+        ...p, mark:active && Object.hasOwn(s.round.moves,p.id) ? 'done' : null,
+      }));
     }
     return state;
   }

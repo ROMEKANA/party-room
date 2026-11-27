@@ -18,6 +18,7 @@ export const short = name => [...(name??'')].slice(0,6).join('');
 export function avatars(s,root = $('players'),selection) {
   const players = s.players.filter(p=>!p.left);
   root.style.setProperty('--people',Math.min(5,players.length));
+  root.style.setProperty('--number-people',players.length);
   root.replaceChildren(...players.map(p => {
     const cls = 'person'+(p.online === false?' offline':'');
     const person = selection ? button('',()=>selection.select(p.id),cls+' player-tab') : el('div',cls);

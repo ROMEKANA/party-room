@@ -1,3 +1,5 @@
+import {setting} from './settings.js';
+import {turnIsOpen,turnTimeFraction,turnTimeLabel} from './timed-turn.js';
 import {button,el,PALETTE} from './board.js';
 import {ACTIONS,BATTLE_CHOICES,BATTLE_MODES,TEAM_NAMES,actionCost,actionTargets,availableActions,canUseAction} from './battle-rules.js';
 
@@ -33,28 +35,6 @@ const formatSetting = (key,value) => value === null ? 'なし' :
   key === 'mode' ? BATTLE_MODES[value] : key === 'seconds' ? value+'秒' :
     key === 'defenseLimit' ? value+'回' : key in detailFields ? value+'ms' : String(value);
 const signed = value => value > 0 ? '+'+value : String(value);
-
-function setting(title,key,options,selected,editable,send) {
-  const label = el('label','setting-row',title);
-  const select = el('select');
-  for (const [index,[value,caption]] of options.entries()) {
-    const option = el('option','',caption);
-    option.value = String(index);
-    option.selected = value === selected;
-    select.append(option);
-  }
-  select.disabled = !editable;
-  select.onchange = async () => {
-    const value = options[select.selectedIndex][0];
-    select.disabled = true;
-    if (!(await send('settings',{settings:{[key]:value}})) && select.isConnected) {
-      select.selectedIndex = options.findIndex(option => option[0] === selected);
-      select.disabled = !editable;
-    }
-  };
-  label.append(select);
-  return label;
-}
 
 export function battleSettings(root,s,send,tab = null) {
   const round = s.playing ? s.round : null;
@@ -312,8 +292,7 @@ export function battleUI() {
     if (r.endsAt !== null && !review) turn.append(track);
     root.append(turn);
 
-    const open = () => ['prepare','select'].includes(r.phase) && serverNow() >= r.startsAt &&
-      (r.endsAt === null || serverNow() < r.endsAt);
+    const open = () => turnIsOpen(r,serverNow());
     async function submit(kind,target) {
       targetKind = null;
       const sent = ++sequence;
@@ -396,16 +375,11 @@ export function battleUI() {
       const enabled = open();
       if (wasOpen !== enabled) paint();
       if (review) clock.textContent = r.phase === 'review' ? 'ターン結果' : BATTLE_MODES[r.settings.mode];
-      else if (now < r.startsAt) clock.textContent = 'ターン開始待ち';
-      else if (!enabled) clock.textContent = '結果を確定中';
       else {
-        const seconds = r.endsAt === null ? '制限時間なし' : Math.ceil((r.endsAt-now)/1000)+'秒';
-        if (seconds !== clock.textContent) clock.textContent = seconds;
+        const label = turnTimeLabel(r,now);
+        if (label !== clock.textContent) clock.textContent = label;
       }
-      if (r.endsAt !== null && !review) {
-        const fraction = Math.min(1,Math.max(0,(r.endsAt-now)/(r.endsAt-r.startsAt)));
-        bar.style.transform = 'scaleX('+(r.phase === 'closing' ? 0 : fraction)+')';
-      }
+      if (r.endsAt !== null && !review) bar.style.transform = 'scaleX('+turnTimeFraction(r,now)+')';
     }
     refreshControls = paint;
     paint();

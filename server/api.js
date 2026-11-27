@@ -2,15 +2,18 @@ import {action,checkScope} from './game.js';
 import {readHistory} from './history.js';
 import {GameError, HEARTBEAT_MS, connected, isExpired, join, members, playing, reconcile, requireGame} from './room.js';
 import {update} from './store.js';
-import {BATTLE,JOB_BATTLE,GAME_IDS,TIER,isBattle} from '../web/games.js';
+import {BATTLE,JOB_BATTLE,GAME_IDS,NUMBER_CLASH,TIER,isBattle} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
 import {visible} from './visibility.js';
 import {advanceBattle} from './battle.js';
+import {advanceNumberClash} from './number-clash.js';
 
-function progressBattle(s,now) {
-  if (!isBattle(s.game) || !s.round) return;
+function progressTurn(s,now) {
+  if (!s.round || !(isBattle(s.game) || s.game === NUMBER_CLASH)) return;
   const present = new Set(members(s).map(p => p.id));
-  advanceBattle(s.round,now,new Set(s.round.ids.filter(id => !present.has(id))));
+  const departed = new Set(s.round.ids.filter(id => !present.has(id)));
+  if (s.game === NUMBER_CLASH) advanceNumberClash(s.round,now,departed);
+  else advanceBattle(s.round,now,departed);
 }
 
 const json = (value,status = 200) => Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
@@ -19,7 +22,8 @@ export async function api(request, db, now = Date.now()) {
   const clientVersion = request.headers.get('X-App-Version');
   const oldClient = clientVersion && newerVersion(VERSION,clientVersion);
   const unsupported = game => (game === JOB_BATTLE && (!clientVersion || oldClient)) ||
-    (game === BATTLE && clientVersion && newerVersion('3.0.0',clientVersion));
+    (game === BATTLE && clientVersion && newerVersion('3.0.0',clientVersion)) ||
+    (game === NUMBER_CLASH && (!clientVersion || newerVersion('5.0.0',clientVersion)));
   try {
     if (path === '/api/version' && request.method === 'GET') return json({version:VERSION});
     if (path === '/api/join' && request.method === 'POST') {
@@ -28,7 +32,7 @@ export async function api(request, db, now = Date.now()) {
       const updated = await update(db,s => {
         reconcile(s,now);
         const p = join(s,name,now,token);
-        progressBattle(s,now);
+        progressTurn(s,now);
         return {id:p.id,token:p.token,pruneHistory:true};
       },now);
       return reply(updated,updated.result.id,now,unsupported,{token:updated.result.token});
@@ -49,7 +53,7 @@ export async function api(request, db, now = Date.now()) {
       reconcile(s,now);
       if (!p) return {disconnected:true};
       id = p.id;
-      progressBattle(s,now);
+      progressTurn(s,now);
       if (isAction) {
         requireGame(typeof a.id === 'string' && /^[a-f0-9-]{36}$/i.test(a.id),'操作IDが無効です。',400);
         if (!p.last.includes(a.id)) {
@@ -67,11 +71,11 @@ export async function api(request, db, now = Date.now()) {
             try {
               action(s,p,a,now,clientVersion);
             } catch (error) {
-              if (a.type !== 'battleMove' || !(error instanceof GameError)) throw error;
+              if (!['battleMove','numberCard'].includes(a.type) || !(error instanceof GameError)) throw error;
               // A late or invalid action can still move a deadline forward for everyone.
               return {error};
             }
-            progressBattle(s,now);
+            progressTurn(s,now);
           }
           p.last = [...p.last.slice(-31),a.id];
           return {resetHistory,retentionChanged:a.type === 'commonSettings'};
@@ -121,6 +125,10 @@ function reply({state,revision},id,now,unsupported,extra={}) {
   if (unsupported(view.game)) {
     Object.assign(view,{game:null,round:null,playing:false});
     delete view.battle;
+    if (view.numberSettings) {
+      delete view.numberSettings;
+      delete view.roundPlayers;
+    }
   }
   if (unsupported(view.selectedGame)) view.selectedGame = TIER;
   return json({revision,at:now,version:VERSION,online:onlineMask(state,now),state:view,...extra});

@@ -2,6 +2,7 @@ import {ACTIONS,BATTLE_CHOICES,actionCost,actionTargets,areEnemies,canUseAction}
 import {JOBS,JOB_BATTLE_FIXED,JOB_CANDIDATE_COUNT} from '../web/battle-jobs.js';
 import {shuffle} from './draw.js';
 import {requireGame} from './room.js';
+import {advanceTimedSelection,beginTimedTurn} from './timed-turn.js';
 
 const pass = () => ({kind:'charge',target:null});
 
@@ -32,14 +33,8 @@ export function battleSettings(current, patch, ids, withJobs = false) {
 }
 
 function nextTurn(round, now) {
-  round.turn++;
-  round.phase = 'prepare';
-  round.startsAt = now + round.settings.readyMs;
-  round.endsAt = round.settings.seconds === null ? null : round.startsAt + round.settings.seconds * 1000;
-  round.closesAt = null;
+  beginTimedTurn(round,now);
   round.reviewUntil = null;
-  round.moves = {};
-  round.version++;
 }
 
 export function startBattle(ids, settings, teams, now, withJobs = false) {
@@ -113,21 +108,9 @@ export function advanceBattle(round, now, departed) {
     if (now >= round.reviewUntil) nextTurn(round,now);
     return;
   }
-  if (round.phase === 'prepare') {
-    if (now < round.startsAt) return;
-    round.phase = 'select';
-    round.version++;
-  }
-  if (round.phase === 'select') {
-    const timedOut = round.endsAt !== null && now >= round.endsAt;
-    const allReady = round.players.every(player => player.hp === 0 || Object.hasOwn(round.moves,player.id) ||
-      (round.endsAt === null && departed.has(player.id)));
-    if (!allReady && !timedOut) return;
-    round.phase = 'closing';
-    round.closesAt = (timedOut ? round.endsAt : now) + round.settings.graceMs;
-    round.version++;
-  }
-  if (now < round.closesAt) return;
+  const allReady = () => round.players.every(player => player.hp === 0 || Object.hasOwn(round.moves,player.id) ||
+    (round.endsAt === null && departed.has(player.id)));
+  if (!advanceTimedSelection(round,now,allReady)) return;
   const resolved = resolveBattleTurn(round);
   round.players = resolved.players;
   round.previous = {turn:round.turn,actions:resolved.actions};

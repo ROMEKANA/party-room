@@ -1,6 +1,6 @@
 import {readdir,readFile,writeFile,mkdir,copyFile} from 'node:fs/promises';
 const modules = [];
-for (const name of ['web/config.js','web/placement.js','web/games.js','web/version.js','web/battle-jobs.js','web/battle-rules.js',...(await readdir('server')).sort().map(name=>'server/'+name)]) {
+for (const name of ['web/config.js','web/placement.js','web/games.js','web/version.js','web/battle-jobs.js','web/battle-rules.js','web/number-clash-rules.js',...(await readdir('server')).sort().map(name=>'server/'+name)]) {
   const source = await readFile(name,'utf8');
   const imports = source.replace(/^import \{([^}]+)\} from '([^']+)';$/gm, (_, names, path) =>
     `const {${names.replace(/\s+as\s+/g,':')}} = modules[${JSON.stringify(path.startsWith('../web/') ? path.slice(3) : name.slice(0,name.lastIndexOf('/')+1)+path.slice(2))}]();`);

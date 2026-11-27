@@ -1311,18 +1311,21 @@ test('update information keeps every past release and filters shared changes by 
   const all = releaseEntries();
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
-  assert.deepEqual(tier.map(entry=>entry.version),all.slice(5).map(entry=>entry.version));
+  assert.deepEqual(tier.map(entry=>entry.version),all.slice(6).map(entry=>entry.version));
   assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),['3.0.0']);
   assert.deepEqual(circle.map(entry=>entry.version),['2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.equal(all[0].title,'ホーム画面用のアプリアイコン・名称を追加');
-  assert.ok(all[0].changes.every(change=>change.gameIds.length===0));
-  assert.equal(all[1].title,'「真・名前の知らないあのゲーム」に表記を統一');
-  assert.equal(all[2].title,'「真・名前の知らないあのゲーム」を追加');
+  assert.equal(all[0].title,'『ナンバークラッシュ』を追加');
+  assert.deepEqual(releaseEntries('number-clash').map(entry=>entry.version),[VERSION]);
+  assert.equal(all[1].version,'4.1.1');
+  assert.equal(all[1].title,'ホーム画面用のアプリアイコン・名称を追加');
+  assert.ok(all[1].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[2].title,'「真・名前の知らないあのゲーム」に表記を統一');
+  assert.equal(all[3].title,'「真・名前の知らないあのゲーム」を追加');
   assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),['4.0.1','4.0.0']);
-  assert.equal(all[3].title,'『名前の知らないあのゲーム』を追加');
-  assert.equal(all[4].version,'2.0.3');
-  assert.ok(all[4].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[4].title,'『名前の知らないあのゲーム』を追加');
+  assert.equal(all[5].version,'2.0.3');
+  assert.ok(all[5].changes.every(change=>change.gameIds.length===0));
   assert.equal(tier[0].version,'2.0.2');
   assert.equal(tier[1].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
@@ -1560,4 +1563,136 @@ test('job battle persists private drafts through reconnect, resolves concurrent 
   ]);
   assert.deepEqual(simultaneous.map(response=>response.status),[200,200]);
   assert.equal((await resumed.state()).round.turn,1);
+});
+
+test('Number Clash uses private, ordered selections, early lock, timeout grace and reconnect',async()=>{
+  const h=harness();
+  const host=await h.join('host');
+  assert.equal((await host.send('browse',{choice:'number-clash'})).status,200);
+  assert.equal((await host.send('choose',{choice:'number-clash'})).status,200);
+  assert.equal((await host.send('start')).status,409);
+  const guests=await Promise.all(Array.from({length:6},(_,i)=>h.join('guest'+i)));
+  const state=await host.state();
+  assert.deepEqual(state.numberSettings,{handSize:9,penalty:1,carryExtreme:true,seconds:10,
+    readyMs:1000,graceMs:800,revealMs:1000,judgmentMs:2000});
+  assert.equal(state.players.filter(p=>p.spectator).length,1);
+  const watcher=guests.find(({name})=>state.players.find(p=>p.id===name).spectator);
+  const players=[host,...guests.filter(p=>p!==watcher)];
+  assert.equal((await watcher.send('settings',{settings:{handSize:12}})).status,409);
+  assert.equal((await host.send('settings',{settings:{handSize:12,seconds:1,readyMs:500,graceMs:400,carryExtreme:false,penalty:2}})).status,200);
+  assert.equal((await host.send('start')).status,200);
+  const initial=(await host.state()).round;
+  assert.deepEqual(initial.unused,Array.from({length:12},(_,i)=>i+1));
+  assert.equal(initial.table.length,1);
+  assert.equal(initial.deck,undefined);
+  assert.equal(initial.revealed,undefined);
+  const act=(player,card,sequence,base=initial,extra={})=>
+    player.send('numberCard',{turn:base.turn,card,sequence,...extra},base);
+  assert.equal((await act(host,8,1)).code,'numberClosed');
+  h.advance(500);
+  assert.equal((await act(watcher,8,1)).status,403);
+  assert.equal((await act(host,9,1)).status,200);
+  assert.equal((await act(host,10,3)).status,200);
+  assert.equal((await act(host,7,2)).status,200);
+  const who=await watcher.state();
+  assert.equal(who.round.own,undefined);
+  assert.equal(who.round.unused,undefined);
+  assert.equal(who.round.moves,undefined);
+  assert.equal(who.roundPlayers.find(p=>p.id==='host').mark,'done');
+  const old=await h.req('state',null,watcher.token,{'X-App-Version':'4.1.1'});
+  assert.equal(old.state.round,null);
+  assert.equal(old.state.numberSettings,undefined);
+
+  const rejoined=await h.join(players[1].name);
+  assert.equal((await players[1].get()).status,401);
+  players[1]=rejoined;
+  const sameAction=crypto.randomUUID();
+  const duplicate=await Promise.all([
+    act(rejoined,10,1,initial,{id:sameAction}),
+    act(rejoined,10,1,initial,{id:sameAction}),
+    ...players.slice(2).map((p,index)=>act(p,index+2,1)),
+  ]);
+  assert.ok(duplicate.every(r=>r.status===200));
+  assert.equal((await host.state()).round.phase,'closing');
+  assert.equal((await act(host,11,4)).code,'numberClosed');
+  h.advance(400);
+  const reveal=(await watcher.state()).round;
+  assert.equal(reveal.phase,'reveal');
+  assert.deepEqual(reveal.revealed.filter(({card})=>card===10).map(({id})=>id),[host.name,rejoined.name]);
+  assert.ok(Object.values(reveal.scores).every(value=>value===0));
+  h.advance(1000);
+  const [a,b]=await Promise.all([host.state(),watcher.state()]);
+  assert.equal(a.round.phase,'judgment');
+  assert.deepEqual(a.round.scores,b.round.scores);
+  assert.equal(a.round.scores.host,-2);
+  assert.equal(a.round.scores[rejoined.name],-2);
+  assert.equal(a.round.judgment.winner,players[a.round.judgment.total<0 ? 2 : 5].name);
+
+  h.advance(2000);
+  const second=(await host.state()).round;
+  assert.equal(second.phase,'prepare');
+  assert.equal(second.unused.includes(10),false);
+  assert.equal((await host.state()).roundPlayers.find(p=>p.id===host.name).mark,null);
+  assert.equal(second.table.length,1);
+  assert.deepEqual(second.revealedPoints,[initial.table[0],second.table[0]].sort((x,y)=>x-y));
+  h.advance(500);
+  assert.equal((await act(host,10,1,second)).code,'numberInvalid');
+  assert.equal((await act(host,11,2,second)).status,200);
+  h.advance(1000);
+  assert.equal((await act(host,12,3,second)).status,200);
+  h.advance(400);
+  assert.equal((await act(host,9,4,second)).code,'numberClosed');
+  const timed=(await watcher.state()).round;
+  assert.equal(timed.phase,'reveal');
+  assert.equal(timed.revealed.find(p=>p.id==='host').card,12);
+  assert.ok(timed.revealed.filter(p=>p.id!=='host').every(p=>p.card===1));
+});
+
+test('Number Clash final judgment waits before writing one scoped history record and resets for a rematch',async()=>{
+  const h=harness();
+  const host=await h.join('A'), guest=await h.join('B');
+  await host.send('browse',{choice:'number-clash'});
+  await host.send('choose',{choice:'number-clash'});
+  await host.send('settings',{settings:{readyMs:500,graceMs:400,revealMs:750,judgmentMs:750,seconds:null}});
+  assert.equal((await host.send('start')).status,200);
+  const match=(await host.state()).round.id;
+  for (let turn=1;turn<=9;turn++) {
+    h.advance(500);
+    const current=(await host.state()).round;
+    for (const p of [host,guest]) {
+      assert.equal((await p.send('numberCard',{turn,card:turn,sequence:1},current)).status,200);
+    }
+    h.advance(400);
+    const reveal=(await host.state()).round;
+    assert.equal(reveal.phase,'reveal');
+    assert.equal(reveal.table.length,turn);
+    h.advance(750);
+    assert.equal((await guest.state()).round.phase,'judgment');
+    assert.equal((await host.history()).record.length,0);
+    h.advance(750);
+    await Promise.all([host.state(),guest.state()]);
+  }
+  const {round}=await host.state();
+  assert.equal(round.phase,'result');
+  assert.deepEqual(round.ranking,[{id:'A',score:-9,rank:1},{id:'B',score:-9,rank:1}]);
+  assert.equal(round.revealed,undefined);
+  assert.equal(round.table,undefined);
+  const history=(await host.history()).record;
+  assert.equal(history.length,1);
+  assert.equal(history[0].gameId,'number-clash');
+  const {record}=await host.history(match);
+  assert.deepEqual(record.settings,{handSize:9,penalty:1,carryExtreme:true});
+  assert.deepEqual(record.ranking,round.ranking);
+  assert.deepEqual(Object.keys(record).sort(),['id','gameId','endedAt','count','settings','ranking','expiresAt'].sort());
+  assert.equal((await h.req('history?game=tier',null,host.token)).record.length,0);
+  assert.equal((await host.send('start')).status,200);
+  const rematch=(await host.state()).round;
+  assert.notEqual(rematch.id,match);
+  assert.equal(rematch.turn,1);
+  assert.deepEqual(rematch.scores,{A:0,B:0});
+  assert.equal(rematch.unused.length,9);
+  assert.equal((await host.send('end')).status,200);
+  assert.equal((await host.send('lobby')).status,200);
+  assert.equal((await host.send('choose',{choice:'number-clash'})).status,200);
+  assert.equal((await host.state()).numberSettings.seconds,null);
 });

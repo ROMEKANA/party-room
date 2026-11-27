@@ -1,4 +1,4 @@
-import {BATTLE,JOB_BATTLE,CIRCLE,TIER} from './games.js';
+import {BATTLE,JOB_BATTLE,CIRCLE,NUMBER_CLASH,TIER} from './games.js';
 import {VERSION} from './version.js';
 
 const legacyReleases = [
@@ -82,7 +82,12 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'ホーム画面用のアプリアイコン・名称を追加',changes:[
+  {version:VERSION,title:'『ナンバークラッシュ』を追加',changes:[
+    {description:'2〜6人で、手札から数字カードを同時に出す心理戦を遊べます。手札は9枚・12枚・15枚から選べます。',gameIds:[NUMBER_CLASH]},
+    {description:'同じ数字を出すと、設定した点数だけ失点します。対象の最大値・最小値が重なると得点カードを持ち越すルールも、ON・OFFを切り替えられます。',gameIds:[NUMBER_CLASH]},
+    {description:'時間制限付きの同時ターン制で進みます。残りの得点カードはボタンの長押しで確認できます。',gameIds:[NUMBER_CLASH]},
+  ]},
+  {version:'4.1.1',title:'ホーム画面用のアプリアイコン・名称を追加',changes:[
     {description:'スマートフォンやタブレットのホーム画面に追加すると「いつパ」と表示されます。ホーム画面とブラウザーのタブに、黄色いひつじのアイコンを使います。',gameIds:[]},
   ]},
   {version:'4.0.1',title:'「真・名前の知らないあのゲーム」に表記を統一',changes:[

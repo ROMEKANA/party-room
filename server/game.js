@@ -6,8 +6,10 @@ import {mode23} from './mode23.js';
 import {act as circleAction,startCircle} from './circle.js';
 import {shuffle} from './draw.js';
 import {hasParent,startProblem} from '../web/config.js';
-import {JOB_BATTLE,isBattle,CIRCLE,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
+import {JOB_BATTLE,isBattle,CIRCLE,NUMBER_CLASH,TIER,GAMES,HISTORY_MINUTES} from '../web/games.js';
 import {battleSettings,battleStartProblem,startBattle,submitBattleMove,selectBattleJob} from './battle.js';
+import {numberSettings,startNumberClash,submitNumberCard} from './number-clash.js';
+import {NUMBER_DEFAULTS} from '../web/number-clash-rules.js';
 import {VERSION,newerVersion} from '../web/version.js';
 
 const readyPlayers = (s,now) => gameMembers(s).filter(p => isOnline(p,now));
@@ -85,6 +87,11 @@ export function action(s, p, a, now, clientVersion) {
     selectBattleJob(r,p.id,a.job,now);
     return;
   }
+  if (s.game === NUMBER_CLASH && a.type === 'numberCard') {
+    requireGame(r && r.id === a.round,'対戦が切り替わりました。',409,'numberClosed');
+    submitNumberCard(r,p.id,a,now);
+    return;
+  }
   requireGame((r?.id ?? null) === a.round && (r?.version ?? 0) === a.version,
     'ゲームが進みました。最新の画面で操作してください。',409,'stale');
   if (a.type === 'lobby' || a.type === 'backSettings' || a.type === 'end') {
@@ -92,10 +99,12 @@ export function action(s, p, a, now, clientVersion) {
       (a.type !== 'backSettings' || !playing(s)), '画面を移動できるのはホストです。');
     changeScreen(s,a.type === 'lobby' && a.scope !== undefined ? null : s.game);
   } else if (a.type === 'settings') {
-    requireGame(host && (s.game === TIER || isBattle(s.game)) && !playing(s),
+    requireGame(host && (s.game === TIER || isBattle(s.game) || s.game === NUMBER_CLASH) && !playing(s),
       '設定変更は開始前か結果画面のホストのみです。');
     if (isBattle(s.game)) {
       s[battleStorage(s.game).settings] = battleSettings(battleRoster(s).settings,a.settings,gameMembers(s).slice(0,4).map(p => p.id),s.game === JOB_BATTLE);
+    } else if (s.game === NUMBER_CLASH) {
+      s.numberSettings = numberSettings({...NUMBER_DEFAULTS,...s.numberSettings},a.settings);
     } else {
       s.settings = settingsFor(s,a.settings);
       alignRoles(s);
@@ -123,6 +132,8 @@ export function action(s, p, a, now, clientVersion) {
     else if (isBattle(s.game)) {
       const {settings,teams} = battleRoster(s);
       s.round = startBattle(ids,settings,balanceTeams(ids,teams),now,s.game === JOB_BATTLE);
+    } else if (s.game === NUMBER_CLASH) {
+      s.round = startNumberClash(ids,{...NUMBER_DEFAULTS,...s.numberSettings},now);
     } else start(s,ids);
     s.round.colors = players.map(p => p.color);
     s.scope = s.round.id;
@@ -133,7 +144,7 @@ export function action(s, p, a, now, clientVersion) {
     r.host = s.host;
     requireGame(['place','bid','pass','reveal','lose','next'].includes(a.type),'不明な操作です。',400);
     actCircle(r,p.id,a);
-  } else if (isBattle(s.game)) {
+  } else if (isBattle(s.game) || s.game === NUMBER_CLASH) {
     requireGame(false,'不明な操作です。',400);
   } else {
     requireGame(r && (r.ids.includes(p.id) || (host && a.type === 'next')), '次のラウンドをお待ちください。');

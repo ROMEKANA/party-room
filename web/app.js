@@ -3,16 +3,18 @@ import {$,avatars,board,button,el,fit,progress,resultSummary,short,showLife,show
 import {connect,storedName} from './sync.js';
 import {consensusBoard,consensusCount,consensusOutcome,consensusPlayers} from './consensus.js';
 import {placementProblem,remainingCards} from './placement.js';
-import {isBattle,CIRCLE,GAMES,TIER} from './games.js';
+import {isBattle,CIRCLE,NUMBER_CLASH,GAMES,TIER} from './games.js';
 import {VERSION} from './version.js';
 import {lobby} from './party.js';
 import {circlePlay,circleSettings} from './circle.js';
 import {battleSettings,battleUI} from './battle.js';
+import {numberClashUI,numberSettings} from './number-clash.js';
 import {dialogs,tierSettings} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
 let resultRound, resultPlayer;
 const renderBattle = battleUI();
+const numberClash = numberClashUI();
 let ownBoardRound, ownCardsHidden = false;
 const panel = dialogs(()=>state,(...args)=>sync.send(...args),(id,game)=>sync.history(id,game));
 const sync = connect((next,previous) => {
@@ -116,6 +118,9 @@ function render() {
   $('party').hidden = !state || tierBoard;
   $('rules').hidden = $('settings').hidden = !state?.game;
   document.querySelector('.app').classList.toggle('party-layout',Boolean(state && !tierBoard));
+  const numberGame = state?.game === NUMBER_CLASH;
+  document.querySelector('.app').classList.toggle('number-layout',Boolean(numberGame && r));
+  if (!numberGame || !r) numberClash.reset();
   if (!state) {
     lastScreen = '';
     notice('');
@@ -129,12 +134,22 @@ function render() {
     const key = JSON.stringify(s);
     if (key !== lastScreen) {
       lastScreen = key;
-      avatars(s);
+      avatars(numberGame && r ? {...s,players:s.roundPlayers} : s);
       const root = $('party');
+      const send = (...args)=>sync.send(...args);
+      if (numberGame && s.playing) {
+        root.className = 'party-screen number-screen';
+        if (root.dataset.numberMatch !== r.id) root.replaceChildren();
+        root.dataset.numberMatch = r.id;
+        numberClash.render(root,s,send,sync.serverNow);
+        panel.render();
+        return;
+      }
+      delete root.dataset.numberMatch;
       root.replaceChildren();
       const battle = isBattle(s.game);
-      root.className = 'party-screen '+(!s.game?'lobby-screen':r?(battle?'battle-screen':'circle-screen'):'setup-screen');
-      const send = (...args)=>sync.send(...args);
+      const roundClass = battle?'battle-screen':numberGame?'number-results':'circle-screen';
+      root.className = 'party-screen '+(!s.game?'lobby-screen':r?roundClass:'setup-screen');
       if (!s.game) lobby(root,s,send,(...args)=>panel.open(...args));
       else {
         const host = s.me===s.host;
@@ -145,6 +160,9 @@ function render() {
         if (battle) {
           if (r) renderBattle(root,s,send,sync.serverNow,panel.open);
           else battleSettings(root,s,send);
+        } else if (numberGame) {
+          if (r) numberClash.render(root,s,send,sync.serverNow);
+          else numberSettings(root,s,send);
         } else if (r) circlePlay(root,r,send,host);
         else if (s.game===CIRCLE) circleSettings(root,s);
         else {

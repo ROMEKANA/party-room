@@ -2,10 +2,12 @@ import {consensusCards} from './consensus.js';
 import {MODES} from '../web/config.js';
 import {lifeStatus, orderedCards} from './round.js';
 
-import {isBattle,CIRCLE,TIER} from '../web/games.js';
+import {isBattle,CIRCLE,NUMBER_CLASH,TIER} from '../web/games.js';
 import {view as circleView} from './circle.js';
 
 import {battleView} from './battle.js';
+import {numberRankings} from './number-clash.js';
+import {numberSettingsSummary} from '../web/number-clash-rules.js';
 
 const scope = "COALESCE(json_extract(summary, '$.gameId'), 'tier')";
 const historyMs = minutes => minutes * 60 * 1000;
@@ -29,6 +31,9 @@ export function snapshot(s, now) {
     const summary = {...header,mode:r.settings.mode,turn:r.turn,outcome:r.outcome};
     const {settings,players,boss,previous} = battleView(r,null);
     return {summary,detail:{...summary,settings,players,boss,previous}};
+  }
+  if (s.game === NUMBER_CLASH) {
+    return {summary:header,detail:{...header,settings:numberSettingsSummary(r.settings),ranking:numberRankings(r)}};
   }
   const scores = r.scores;
   const players = r.ids.map((id,index) => ({id,color:r.colors[index],...(scores ? {score:scores[id]} : {})}));
