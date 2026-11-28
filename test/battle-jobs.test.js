@@ -4,6 +4,8 @@ import {battleView,selectBattleJob,resolveBattleTurn,startBattle,submitBattleMov
 import {BATTLE_DEFAULTS,actionTargets,availableActions,canUseAction} from '../web/battle-rules.js';
 import {JOBS,JOB_BATTLE_FIXED,JOB_CANDIDATE_COUNT} from '../web/battle-jobs.js';
 
+import {TURN_GRACE_DEFAULTS} from '../web/time-settings.js';
+
 const ids = ['a','b','c','d','e','f'];
 const teams = {pink:['a','b','c'],blue:['d','e','f']};
 function start(mode = 'royale',settings = {},players = ids) {
@@ -53,7 +55,7 @@ test('drafts are independent, sampled without replacement, private and fixed unt
   }
   assert.equal(match.phase,'prepare');
   assert.equal(match.turn,1);
-  assert.equal(match.startsAt,500+BATTLE_DEFAULTS.readyMs);
+  assert.equal(match.startsAt,500+TURN_GRACE_DEFAULTS.readyMs);
   assert.equal(player(match,'a').job,player(match,'b').job);
   assert.equal(battleView(match,null).jobDraft,undefined);
   assert.equal(battleView(match,null).players[0].job,chosen);

@@ -1,14 +1,13 @@
-import {NUMBER_CHOICES,NUMBER_DEFAULTS} from './number-clash-rules.js';
+import {DEFAULT_TURN_SECONDS,TURN_SECONDS_CHOICES} from './time-settings.js';
 
 export const FOUR_CHOICES = {
   size:[6,7,8,9],
-  seconds:NUMBER_CHOICES.seconds,
-  readyMs:NUMBER_CHOICES.readyMs,
+  seconds:TURN_SECONDS_CHOICES,
   dropMs:[300,400,500,600,700,800,900,1000],
 };
 
 export const FOUR_DEFAULTS = {
-  size:7, seconds:NUMBER_DEFAULTS.seconds, readyMs:NUMBER_DEFAULTS.readyMs, dropMs:500,
+  size:7, seconds:DEFAULT_TURN_SECONDS, dropMs:500,
 };
 
 export const FOUR_COLORS = {

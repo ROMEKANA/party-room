@@ -4,13 +4,16 @@ import {BATTLE_DEFAULTS} from '../web/battle-rules.js';
 import {JOB_BATTLE_FIXED} from '../web/battle-jobs.js';
 import {randomTopic} from './topics.js';
 import {PLAYER_NAME_ERROR,isAvatarId,normalizePlayerName,resolveAvatarId,validPlayerName} from '../web/player-profile.js';
+import {TURN_GRACE_DEFAULTS} from '../web/time-settings.js';
+
+const COMMON_DEFAULTS = {historyMinutes:DEFAULT_HISTORY_MINUTES,...TURN_GRACE_DEFAULTS};
 export const ONLINE_MS = 15_000;
 export const HOST_GRACE_MS = 30_000;
 export const HEARTBEAT_MS = 6_000;
 const ROOM_MAX = 10;
 export const initialRoom = () => ({
   settings:{...DEFAULTS}, players:[], host:null, round:null,
-  game:null, selectedGame:TIER, scope:null, common:{historyMinutes:DEFAULT_HISTORY_MINUTES},
+  game:null, selectedGame:TIER, scope:null, common:{...COMMON_DEFAULTS},
   rotation:{parent:null, setter:null}, previousParent:null,
 });
 export function prepareRoom(s) {
@@ -21,7 +24,12 @@ export function prepareRoom(s) {
     if (s.round) s.legacyRound = s.round.id;
   }
   s.settings = {...DEFAULTS,...s.settings};
-  s.common ??= {historyMinutes:DEFAULT_HISTORY_MINUTES};
+  s.common = {...COMMON_DEFAULTS,...s.common};
+  for (const key of ['battleSettings','jobBattleSettings','numberSettings','fourSettings']) {
+    if (!s[key]) continue;
+    delete s[key].readyMs;
+    delete s[key].graceMs;
+  }
   if (s.round && !s.round.colors) {
     s.round.colors = s.round.ids.map(id => s.players.find(p => p.id === id)?.color ?? 0);
   }

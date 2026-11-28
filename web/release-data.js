@@ -82,7 +82,12 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'「名前の知らないあのゲーム」シリーズのバランスを調整',changes:[
+  {version:VERSION,title:'時間制限システムの共通化',changes:[
+    {description:'4ゲームで時間制限の処理とタイマー表示を共通化しました。',gameIds:[BATTLE,JOB_BATTLE,NUMBER_CLASH,FOUR]},
+    {description:'ターン開始前と終了時の通信猶予をルームの「共通設定」から変更できるようになりました。',gameIds:[BATTLE,JOB_BATTLE,NUMBER_CLASH,FOUR]},
+    {description:'せーので四目では、落下演出後の次ターンを含め、毎ターンの開始前と締切後に通信猶予を適用します。',gameIds:[FOUR]},
+  ]},
+  {version:'6.1.0',title:'「名前の知らないあのゲーム」シリーズのバランスを調整',changes:[
     {description:'真では、僧侶の回復の消費を2、戦士の全体攻撃を各1ダメージに変更しました。武闘家のエネルギー上限は2になり、全体攻撃は使えなくなりました。',gameIds:[JOB_BATTLE]},
     {description:'通常版のボス戦で、ボスの初期・最大HPを基本HPの3倍にし、単体攻撃を2ダメージに強化しました。全体攻撃の消費は1になりました。',gameIds:[BATTLE]},
     {description:'両ゲームで、被弾上限を有効な攻撃・反撃の件数に統一しました。ダメージの大きい攻撃から優先されます。',gameIds:[BATTLE,JOB_BATTLE]},

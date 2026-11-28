@@ -1,7 +1,7 @@
 import {button,el} from './board.js';
 import {FOUR_CHOICES,FOUR_COLORS} from './four-rules.js';
 import {setting} from './settings.js';
-import {turnIsOpen,turnTimeFraction,turnTimeLabel} from './timed-turn.js';
+import {timedTurnUI} from './timed-turn.js';
 
 export const FOUR_RULES = [
   ['列を選ぶ','2〜4人で遊びます。列の上の▽を押して提出します。全員が提出するか時間切れになるまで変更でき、時間切れで未提出なら空きのある列を自動で選びます。'],
@@ -10,7 +10,7 @@ export const FOUR_RULES = [
 ];
 
 const BASIC = {size:'盤面サイズ',starter:'開始プレイヤー',seconds:'選択制限時間'};
-const DETAIL = {readyMs:'初回開始前の通信猶予',dropMs:'1コマの落下時間'};
+const DETAIL = {dropMs:'1コマの落下時間'};
 const format = (key,value) => {
   if (key === 'size') return value+'×'+value;
   if (key === 'seconds') return value === null ? 'なし' : value+'秒';
@@ -119,15 +119,14 @@ export function fourUI() {
 }
 
 function mount(root,size,send,serverNow,signal) {
-  const turn = el('strong');
-  const clock = el('span','battle-clock');
-  const heading = el('div','battle-turn-heading');
-  heading.append(turn,clock);
-  const track = el('div','progress-track battle-clock-track');
-  const bar = el('div','battle-clock-bar');
-  track.append(bar);
-  const header = el('div','battle-turn');
-  header.append(heading,track);
+  const timer = timedTurnUI(root,{
+    serverNow,signal,reserveTrack:true,onOpenChange:paintChoices,
+    onFrame(now) {
+      if (!round.animation) return false;
+      paintDrop(now);
+      return now < round.animation.until;
+    },
+  });
 
   const stage = el('div','four-stage');
   const columns = el('div','four-columns');
@@ -143,10 +142,10 @@ function mount(root,size,send,serverNow,signal) {
   const falling = el('span','four-piece four-falling');
   falling.setAttribute('aria-hidden','true');
   stage.append(columns,field.board);
-  root.append(header,stage);
+  root.append(stage);
 
-  let round, watching, pending, sequence = 0, frame;
-  let open, paintedStep, skipAnimation;
+  let round, watching, pending, sequence = 0;
+  let paintedStep, skipAnimation;
   function paintChoices(canChoose) {
     const selected = pending?.column ?? round.own?.column;
     for (const [column,choice] of choices.entries()) {
@@ -160,7 +159,7 @@ function mount(root,size,send,serverNow,signal) {
   }
 
   async function choose(column) {
-    if (watching || !turnIsOpen(round,serverNow()) || round.board[0][column] !== null) return;
+    if (watching || !timer.isOpen() || round.board[0][column] !== null) return;
     const base = round;
     const move = {column,sequence:++sequence};
     pending = move;
@@ -168,7 +167,7 @@ function mount(root,size,send,serverNow,signal) {
     await send('fourColumn',{...move,turn:base.turn},base);
     if (pending === move) {
       pending = null;
-      paintChoices(turnIsOpen(round,serverNow()));
+      paintChoices(timer.isOpen());
     }
   }
 
@@ -198,28 +197,6 @@ function mount(root,size,send,serverNow,signal) {
     field.board.append(falling);
   }
 
-  function paint() {
-    const now = serverNow();
-    const review = round.phase === 'drop';
-    const canChoose = turnIsOpen(round,now);
-    if (round.outcome && now >= round.animation?.until) turn.textContent = fourResultLabel(round.outcome.winner);
-    const label = review ? 'コマを落としています' : turnTimeLabel(round,now);
-    if (clock.textContent !== label) clock.textContent = label;
-    columns.style.visibility = review || watching ? 'hidden' : '';
-    track.style.visibility = review || round.endsAt === null ? 'hidden' : '';
-    if (!review && round.endsAt !== null) bar.style.transform = 'scaleX('+turnTimeFraction(round,now)+')';
-    if (open !== canChoose) {
-      open = canChoose;
-      paintChoices(open);
-    }
-    if (review) paintDrop(now);
-  }
-
-  function animate() {
-    paint();
-    frame = requestAnimationFrame(animate);
-  }
-  signal.addEventListener('abort',()=>cancelAnimationFrame(frame),{once:true});
   return (next,isWatching)=>{
     const advance = round?.turn !== next.turn;
     const newAnimation = next.animation && round?.animation?.from !== next.animation.from;
@@ -234,13 +211,15 @@ function mount(root,size,send,serverNow,signal) {
     sequence = Math.max(sequence,next.own?.sequence ?? 0);
     round = next;
     watching = isWatching;
-    turn.textContent = round.turn+'ターン目'+(watching ? '・観戦中' : '');
+    const turnLabel = next.turn+'ターン目'+(watching ? '・観戦中' : '');
+    columns.style.visibility = next.animation || watching ? 'hidden' : '';
     if (!round.animation) {
       falling.remove();
       field.paint(round.board);
     }
-    open = undefined;
-    cancelAnimationFrame(frame);
-    animate();
+    timer.update(next,{
+      title:next.outcome && next.animation ? now=>now >= next.animation.until ? fourResultLabel(next.outcome.winner) : turnLabel : turnLabel,
+      label:next.animation ? 'コマを落としています' : null,
+    });
   };
 }

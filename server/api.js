@@ -80,7 +80,7 @@ export async function api(request, db, now = Date.now()) {
             progressTurn(s,now);
           }
           p.last = [...p.last.slice(-31),a.id];
-          return {resetHistory,retentionChanged:a.type === 'commonSettings'};
+          return {resetHistory,retentionChanged:a.type === 'commonSettings' && Object.hasOwn(a,'minutes')};
         }
       }
     },now);

@@ -16,14 +16,21 @@ test('four: every board size and roster size uses the nominated order and fixed 
       assert.deepEqual(round.order,expected);
       assert.deepEqual(expected.map(id=>round.pieces[id]),colors);
       advanceFour(round,1100,new Set());
-      for (const id of ids) submitFour(round,id,{turn:1,column:2,sequence:1});
+      for (const id of ids) submitFour(round,id,{turn:1,column:2,sequence:1},1100);
       advanceFour(round,1100,new Set());
+      assert.equal(round.phase,'closing');
+      assert.throws(()=>submitFour(round,ids[0],{turn:1,column:3,sequence:2},1101),{code:'fourClosed'});
+      advanceFour(round,1899,new Set());
+      assert.equal(round.phase,'closing');
+      advanceFour(round,1900,new Set());
       assert.deepEqual(round.board.map(row=>row[2]).slice(-count),colors.toReversed());
-      assert.equal(round.animation.until,1100+500*count);
+      assert.equal(round.animation.until,1900+500*count);
       advanceFour(round,round.animation.until-1,new Set());
       assert.equal(round.phase,'drop');
-      advanceFour(round,round.animation.until,new Set());
-      assert.equal(round.phase,'select');
+      const dropEnd = round.animation.until;
+      advanceFour(round,dropEnd,new Set());
+      assert.equal(round.phase,'prepare');
+      assert.equal(round.startsAt,dropEnd+1000);
       assert.deepEqual(round.order,[...expected.slice(1),expected[0]]);
       assert.deepEqual(expected.map(id=>round.pieces[id]),colors);
       assert.deepEqual(round.moves,{});
@@ -44,13 +51,14 @@ test('four: server auto-picks only open columns, with independent choices before
   round.board[0][5] = null;
   round.board[1][5] = null;
   advanceFour(round,1000,new Set());
-  assert.throws(()=>submitFour(round,'A',{turn:1,column:0,sequence:1}),{code:'fourInvalid'});
+  assert.throws(()=>submitFour(round,'A',{turn:1,column:0,sequence:1},1000),{code:'fourInvalid'});
   const spread = [.499,.2,.9,.1];
   let calls = 0;
-  advanceFour(round,2000,new Set(),()=>spread[calls++]);
+  advanceFour(round,2799,new Set(),()=>{throw Error('resolved before grace ended');});
+  advanceFour(round,2800,new Set(),()=>spread[calls++]);
   assert.deepEqual(round.animation.drops.map(({column,row,discarded})=>[column,row,discarded]),
     [[3,0,false],[3,null,true],[5,1,false],[3,null,true]]);
-  advanceFour(round,2001,new Set(),()=>{throw Error('resolved twice');});
+  advanceFour(round,2801,new Set(),()=>{throw Error('resolved twice');});
   assert.equal(calls,4);
 });
 

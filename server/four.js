@@ -1,6 +1,6 @@
 import {FOUR_CHOICES,FOUR_COLORS,FOUR_DEFAULTS} from '../web/four-rules.js';
 import {requireGame} from './room.js';
-import {advanceTimedSelection,beginTimedTurn,recordTimedMove} from './timed-turn.js';
+import {acceptsTimedMove,advanceTimedSelection,allTimedPlayersReady,beginTimedTurn,recordTimedMove,turnGrace} from './timed-turn.js';
 
 const WIN_LENGTH = 4;
 const DIRECTIONS = [[0,1],[1,0],[1,-1],[1,1]];
@@ -16,14 +16,14 @@ export function fourSettings(current, patch, ids) {
   return {...current,...patch};
 }
 
-export function startFour(ids, settings, now) {
+export function startFour(ids, settings, now, timing) {
   settings = {...FOUR_DEFAULTS,...settings};
   const first = Math.max(0,ids.indexOf(settings.starter));
   const order = [...ids.slice(first),...ids.slice(0,first)];
   const palette = Object.keys(FOUR_COLORS);
   const round = {
     id:crypto.randomUUID(), ids, order, version:0, turn:0,
-    settings:{...settings,starter:order[0]},
+    settings:{...settings,starter:order[0]}, timing:turnGrace(timing),
     pieces:Object.fromEntries(order.map((id,index)=>[id,palette[index]])),
     board:Array.from({length:settings.size},()=>Array(settings.size).fill(null)),
     animation:null, outcome:null,
@@ -32,9 +32,8 @@ export function startFour(ids, settings, now) {
   return round;
 }
 
-export function submitFour(round, id, request) {
-  requireGame(request.turn === round.turn && round.phase === 'select',
-    'このターンの受付は終了しました。',409,'fourClosed');
+export function submitFour(round, id, request, now) {
+  requireGame(acceptsTimedMove(round,request.turn,now),'このターンの受付は終了しました。',409,'fourClosed');
   requireGame(round.ids.includes(id),'観戦中は列を選べません。',403,'forbidden');
   recordTimedMove(round,id,request.sequence,()=>{
     const {column} = request;
@@ -107,17 +106,16 @@ export function advanceFour(round, now, departed, random = Math.random) {
       round.version++;
     } else {
       round.order.push(round.order.shift());
-      // The next input window starts after the drop. After an idle room resumes, give it a fresh window.
-      const startsAt = round.settings.seconds !== null && now >= until + round.settings.seconds * 1000 ? now : until;
-      beginTimedTurn(round,startsAt,0);
-      advanceTimedSelection(round,now,()=>false,0);
+      // Resume with a full window if the room missed the entire next selection phase.
+      const nextEnd = until + round.timing.readyMs + round.settings.seconds * 1000;
+      const base = round.settings.seconds !== null && now >= nextEnd ? now : until;
+      beginTimedTurn(round,base);
+      advanceTimedSelection(round,now,()=>false,true);
     }
     return;
   }
 
-  const ready = () => round.ids.every(id=>Object.hasOwn(round.moves,id) ||
-    (round.endsAt === null && departed.has(id)));
-  if (!advanceTimedSelection(round,now,ready,0)) return;
+  if (!advanceTimedSelection(round,now,()=>allTimedPlayersReady(round,departed),true)) return;
 
   const available = openColumns(round.board);
   const columns = Object.fromEntries(round.order.map(id=>[id,Object.hasOwn(round.moves,id) ?

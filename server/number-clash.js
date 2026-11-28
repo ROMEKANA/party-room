@@ -1,7 +1,7 @@
 import {NUMBER_CHOICES,handCards,pointCards} from '../web/number-clash-rules.js';
 import {shuffle} from './draw.js';
 import {requireGame} from './room.js';
-import {advanceTimedSelection,beginTimedTurn,recordTimedMove} from './timed-turn.js';
+import {acceptsTimedMove,advanceTimedSelection,allTimedPlayersReady,beginTimedTurn,recordTimedMove,turnGrace} from './timed-turn.js';
 
 export function numberSettings(current, patch) {
   requireGame(patch && typeof patch === 'object' && !Array.isArray(patch),'設定が無効です。',400);
@@ -17,12 +17,11 @@ function nextTurn(round, now) {
   round.revealed = null;
   round.judgment = null;
   round.phaseUntil = null;
-  round.locked = false;
 }
 
-export function startNumberClash(ids, settings, now) {
+export function startNumberClash(ids, settings, now, timing) {
   const round = {
-    id:crypto.randomUUID(), ids, version:0, turn:0, settings:{...settings},
+    id:crypto.randomUUID(), ids, version:0, turn:0, settings:{...settings}, timing:turnGrace(timing),
     players:ids.map(id=>({id,score:0,unused:handCards(settings.handSize)})),
     deck:shuffle(pointCards(settings.handSize)), table:[],
   };
@@ -31,18 +30,13 @@ export function startNumberClash(ids, settings, now) {
 }
 
 export function submitNumberCard(round, id, request, now) {
-  requireGame(request.turn === round.turn &&
-    (round.phase === 'select' || (round.phase === 'closing' && !round.locked && now < round.closesAt)),
-  'このターンの受付は終了しました。',409,'numberClosed');
+  requireGame(acceptsTimedMove(round,request.turn,now),'このターンの受付は終了しました。',409,'numberClosed');
   const player = round.players.find(entry=>entry.id===id);
   requireGame(player,'観戦中はカードを選べません。',403,'forbidden');
-  const changed = recordTimedMove(round,id,request.sequence,()=>{
+  recordTimedMove(round,id,request.sequence,()=>{
     requireGame(player.unused.includes(request.card),'使用できる手札を選んでください。',400,'numberInvalid');
     return {card:request.card};
   });
-  if (!changed) return;
-  // Once the last player submits, requests arriving during the grace period cannot change the selection.
-  if (round.players.every(entry=>Object.hasOwn(round.moves,entry.id))) round.locked = true;
 }
 
 export function judgeNumberClash(revealed, table, settings) {
@@ -87,11 +81,7 @@ export function advanceNumberClash(round, now, departed) {
     round.version++;
     return;
   }
-  const allReady = () => round.players.every(({id})=>Object.hasOwn(round.moves,id) ||
-    (round.endsAt === null && departed.has(id)));
-  const resolved = advanceTimedSelection(round,now,allReady);
-  if (round.phase === 'closing' && (round.endsAt === null || now < round.endsAt)) round.locked = true;
-  if (!resolved) return;
+  if (!advanceTimedSelection(round,now,()=>allTimedPlayersReady(round,departed),true)) return;
   round.revealed = round.players.map(player=>{
     const card = Object.hasOwn(round.moves,player.id) ? round.moves[player.id].card : player.unused[0];
     player.unused = player.unused.filter(value=>value!==card);

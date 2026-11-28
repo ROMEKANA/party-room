@@ -12,6 +12,7 @@ Node.js 24 で `npm run dev` を実行します。既定のURLは `http://localh
 
 - [アプリの仕様](docs/SPECIFICATION.md)
 - [アーキテクチャとゲーム追加手順](docs/ARCHITECTURE.md)
+- [共通の時間管理とタイマーUIの使い方](docs/ARCHITECTURE.md#共通の時間管理とタイマーui)
 - [テスト方針と回帰項目](docs/TEST_POLICY.md)
 - [バージョン・公開方針](docs/RELEASE_POLICY.md)
 - [開発時の指示](AGENTS.md)

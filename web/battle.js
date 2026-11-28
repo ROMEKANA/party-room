@@ -1,5 +1,5 @@
 import {setting} from './settings.js';
-import {turnIsOpen,turnTimeFraction,turnTimeLabel} from './timed-turn.js';
+import {timedTurnUI} from './timed-turn.js';
 import {button,el} from './board.js';
 import {playerDisplay} from './player-display.js';
 import {ACTIONS,BATTLE_CHOICES,BATTLE_MODES,BOSS_STATS,TEAM_NAMES,actionCost,actionTargets,availableActions,canUseAction} from './battle-rules.js';
@@ -30,7 +30,7 @@ const basicFields = {
   defenseLimit:'連続防御制限', seconds:'行動制限時間',
 };
 const detailFields = {
-  readyMs:'ターン開始前の通信猶予', graceMs:'ターン終了時の通信猶予', resultMs:'ターン結果表示時間',
+  resultMs:'ターン結果表示時間',
 };
 const formatSetting = (key,value) => value === null ? 'なし' :
   key === 'mode' ? BATTLE_MODES[value] : key === 'seconds' ? value+'秒' :
@@ -272,8 +272,13 @@ export function battleHistory(root,record) {
 
 export function battleUI() {
   let turnKey, targetKind, sequence, inFlight, reviewed, refreshControls;
-  let draftMatch, draftChoice, sendingJob;
-  return function render(root,s,send,serverNow,openPanel) {
+  let draftMatch, draftChoice, sendingJob, timer;
+  function reset() {
+    timer?.dispose();
+    timer = refreshControls = null;
+  }
+  function render(root,s,send,serverNow,openPanel) {
+    reset();
     const r = s.round;
     if (r.phase === 'jobs') {
       if (draftMatch !== r.id) {
@@ -296,18 +301,9 @@ export function battleUI() {
     const review = r.phase === 'review' || r.phase === 'result';
     const animate = review && reviewed !== key;
     if (review) reviewed = key;
-    const turn = el('div','battle-turn');
-    const clock = el('span','battle-clock');
-    const heading = el('div','battle-turn-heading');
-    heading.append(el('strong','',r.phase === 'result' ? battleOutcome(r.outcome) : 'ターン '+r.turn),clock);
-    turn.append(heading);
-    const track = el('div','progress-track battle-clock-track');
-    const bar = el('div','battle-clock-bar');
-    track.append(bar);
-    if (r.endsAt !== null && !review) turn.append(track);
-    root.append(turn);
-
-    const open = () => turnIsOpen(r,serverNow());
+    const turnTimer = timedTurnUI(root,{serverNow,onOpenChange:paint});
+    timer = turnTimer;
+    const open = turnTimer.isOpen;
     async function submit(kind,target) {
       targetKind = null;
       const sent = ++sequence;
@@ -316,7 +312,7 @@ export function battleUI() {
       await send('battleMove',{kind,target,turn:r.turn,sequence:sent},r);
       if (key === turnKey) {
         inFlight.delete(sent);
-        refreshControls();
+        refreshControls?.();
       }
     }
     const canAct = me?.hp > 0 && !review;
@@ -359,10 +355,7 @@ export function battleUI() {
       root.append(controls);
     }
 
-    let wasOpen;
-    function paint() {
-      const enabled = open();
-      wasOpen = enabled;
+    function paint(enabled = open()) {
       const selected = enabled && targetKind && canAct && canUseAction(r,me,targetKind) ? targetKind : null;
       const validTargets = selected ? new Set(actionTargets(r,me,selected)) : new Set();
       for (const [id,card] of cards) {
@@ -385,29 +378,12 @@ export function battleUI() {
       }
       if (me && !canAct) status.textContent = me.hp === 0 ? '脱落 · 観戦中' : 'このターンの行動を確定しました';
     }
-    function paintClock() {
-      const now = serverNow();
-      const enabled = open();
-      if (wasOpen !== enabled) paint();
-      if (review) clock.textContent = r.phase === 'review' ? 'ターン結果' : BATTLE_MODES[r.settings.mode];
-      else {
-        const label = turnTimeLabel(r,now);
-        if (label !== clock.textContent) clock.textContent = label;
-      }
-      if (r.endsAt !== null && !review) bar.style.transform = 'scaleX('+turnTimeFraction(r,now)+')';
-    }
     refreshControls = paint;
-    paint();
-    paintClock();
-    if (!review) {
-      const update = () => {
-        if (!turn.isConnected) return;
-        paintClock();
-        requestAnimationFrame(update);
-      };
-      requestAnimationFrame(update);
-    }
-  };
+    timer.update(r,{
+      title:r.phase === 'result' ? battleOutcome(r.outcome) : 'ターン '+r.turn,
+      label:r.phase === 'review' ? 'ターン結果' : r.phase === 'result' ? BATTLE_MODES[r.settings.mode] : null,
+    });
+  }
 
   function renderJobDraft(root,round,send) {
     root.append(el('h2','party-title','職業を選ぶ'),
@@ -450,4 +426,6 @@ export function battleUI() {
     root.append(section,confirm);
     paint();
   }
+
+  return {render,reset};
 }

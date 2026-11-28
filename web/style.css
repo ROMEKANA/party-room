@@ -240,12 +240,12 @@ nav button{padding-inline:6px}
 .battle-team-person[aria-pressed=true]{border-color:#286950;background:#fff}
 .battle-screen{gap:clamp(3px,.85dvh,8px)}
 .battle-screen .party-title{font-size:clamp(13px,3.8vw,20px)}
-.battle-turn{display:grid;gap:4px;flex:none}
-.battle-turn-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}
-.battle-turn-heading strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.battle-clock{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums;color:#536757}
-.battle-clock-track{height:5px}
-.battle-clock-bar{height:100%;background:#587950;transform-origin:left}
+.timed-turn{display:grid;gap:4px;flex:none}
+.timed-turn-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:14px}
+.timed-turn-heading strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timed-turn-clock{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums;color:#536757}
+.timed-turn-track{height:5px}
+.timed-turn-bar{height:100%;background:#587950;transform-origin:left}
 .battle-cards{flex:1;min-height:0;display:flex;flex-direction:column;gap:4px}
 .battle-card-row{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--battle-columns),minmax(0,1fr));gap:4px}
 .battle-card{display:grid;align-content:safe center;gap:1px;min-width:0;min-height:0;overflow:hidden;padding:2px 5px;border:1px solid #d6dfd1;border-radius:8px;background:var(--battle-bg,#fff);text-align:left;color:#293f38;font-size:clamp(10px,1.7dvh,13px);line-height:1.04}
@@ -338,7 +338,6 @@ nav button{padding-inline:6px}
   display:flex; flex:1; min-height:0; flex-direction:column;
   gap:clamp(4px,1.2dvh,10px);
 }
-.four-play .battle-turn {flex:none}
 .four-stage {
   container-type:size; flex:1; min-height:0; min-width:0;
   display:flex; align-items:center; flex-direction:column;

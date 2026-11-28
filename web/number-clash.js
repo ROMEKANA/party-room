@@ -3,7 +3,7 @@ import {playerAvatar} from './player-display.js';
 import {holdButton} from './hold.js';
 import {NUMBER_BASIC_FIELDS,NUMBER_CHOICES,handCards,pointCards} from './number-clash-rules.js';
 import {setting} from './settings.js';
-import {turnIsOpen,turnTimeFraction,turnTimeLabel} from './timed-turn.js';
+import {timedTurnUI} from './timed-turn.js';
 
 export const NUMBER_RULES = [
   ['手札を1枚出す','2〜6人の個人戦です。全員が同じ数字の手札を持ち、毎ターン、場に得点カードが1枚加わります。手札はタップで選択し、全員が選ぶか制限時間になるまで変更できます。時間切れで未選択なら、残り手札の最小値を出します。'],
@@ -15,7 +15,6 @@ export const NUMBER_RULES = [
 
 const BASIC = {...NUMBER_BASIC_FIELDS,seconds:'選択制限時間'};
 const DETAIL = {
-  readyMs:'ターン開始前の通信猶予', graceMs:'ターン終了時の通信猶予',
   revealMs:'カード公開表示時間', judgmentMs:'得点判定表示時間',
 };
 const formatSetting = (key,value) => {
@@ -99,15 +98,7 @@ export function numberClashUI() {
 }
 
 function mountNumberBoard(root,signal,send,serverNow) {
-  const turn = el('strong');
-  const clock = el('span','battle-clock');
-  const heading = el('div','battle-turn-heading');
-  const track = el('div','progress-track battle-clock-track');
-  const bar = el('div','battle-clock-bar');
-  const header = el('div','battle-turn');
-  track.append(bar);
-  heading.append(turn,clock);
-  header.append(heading,track);
+  const timer = timedTurnUI(root,{serverNow,signal,reserveTrack:true,onOpenChange:paintHand});
   const pot = el('section','number-pot');
   const total = el('strong','number-total');
   const table = el('div','number-table');
@@ -124,7 +115,7 @@ function mountNumberBoard(root,signal,send,serverNow) {
   peek.setAttribute('aria-label','残りの得点カード');
   peek.hidden = true;
   lower.append(content,peek);
-  root.append(header,pot,lower,footer);
+  root.append(pot,lower,footer);
   hold.setAttribute('aria-expanded','false');
   holdButton(hold,held=>{
     peek.hidden = !held;
@@ -132,7 +123,7 @@ function mountNumberBoard(root,signal,send,serverNow) {
     hold.setAttribute('aria-expanded',String(held));
   },{cancelOnExit:false,signal});
 
-  let round, watching, sequence = 0, pending, isOpen;
+  let round, watching, sequence = 0, pending;
   let menuKey, boardKey;
   let hand = [];
   function paintHand(open) {
@@ -145,28 +136,14 @@ function mountNumberBoard(root,signal,send,serverNow) {
 
   async function choose(card) {
     const r = round;
-    if (!turnIsOpen(r,serverNow()) || !r.unused?.includes(card)) return;
+    if (!timer.isOpen() || !r.unused?.includes(card)) return;
     const sent = {card,sequence:++sequence};
     pending = sent;
     paintHand(true);
     await send('numberCard',{...sent,turn:r.turn},r);
     if (pending === sent) {
       pending = null;
-      paintHand(turnIsOpen(round,serverNow()));
-    }
-  }
-
-  function paintClock() {
-    const now = serverNow();
-    const open = turnIsOpen(round,now);
-    const review = round.phase === 'reveal' || round.phase === 'judgment';
-    const label = review ? (round.phase === 'reveal' ? 'カード公開' : '得点判定') : turnTimeLabel(round,now);
-    if (clock.textContent !== label) clock.textContent = label;
-    track.style.visibility = review || round.endsAt === null ? 'hidden' : '';
-    if (round.endsAt !== null && !review) bar.style.transform = 'scaleX('+turnTimeFraction(round,now)+')';
-    if (isOpen !== open) {
-      isOpen = open;
-      paintHand(open);
+      paintHand(timer.isOpen());
     }
   }
 
@@ -218,7 +195,6 @@ function mountNumberBoard(root,signal,send,serverNow) {
     sequence = Math.max(sequence,r.own?.sequence ?? 0);
     if (pending && r.own?.sequence >= pending.sequence) pending = null;
     const turnLabel = `ターン ${r.turn} / ${r.settings.handSize}`+(spectator ? ' ・ 観戦中' : '');
-    if (turn.textContent !== turnLabel) turn.textContent = turnLabel;
 
     const pointKey = JSON.stringify(r.revealedPoints);
     if (menuKey !== pointKey) {
@@ -239,15 +215,8 @@ function mountNumberBoard(root,signal,send,serverNow) {
     const message = r.judgment && r.judgment.winner === null ?
       (r.turn === r.settings.handSize ? '場の得点カードは破棄' : '場の得点カードを持ち越し') : '';
     if (status.textContent !== message) status.textContent = message;
-    isOpen = undefined;
-    paintClock();
+    timer.update(r,{title:turnLabel,label:r.phase === 'reveal' ? 'カード公開' : r.phase === 'judgment' ? '得点判定' : null});
   }
 
-  function tick() {
-    if (signal.aborted) return;
-    if (round) paintClock();
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
   return update;
 }

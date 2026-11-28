@@ -16,7 +16,7 @@ import {dialogs,tierSettings} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
 let resultRound, resultPlayer;
-const renderBattle = battleUI();
+const battle = battleUI();
 const numberClash = numberClashUI();
 const four = fourUI();
 let ownBoardRound, ownCardsHidden = false;
@@ -150,6 +150,8 @@ function render() {
   $('party').hidden = !state || tierBoard;
   $('rules').hidden = $('settings').hidden = !state?.game;
   document.querySelector('.app').classList.toggle('party-layout',Boolean(state && !tierBoard));
+  const battleGame = isBattle(state?.game);
+  if (!battleGame || !r) battle.reset();
   const numberGame = state?.game === NUMBER_CLASH;
   if (!numberGame || !r) numberClash.reset();
   const fourGame = state?.game === FOUR;
@@ -189,18 +191,17 @@ function render() {
       delete root.dataset.numberMatch;
       delete root.dataset.fourMatch;
       root.replaceChildren();
-      const battle = isBattle(s.game);
-      const roundClass = battle?'battle-screen':numberGame?'number-results':fourGame?'four-results':'circle-screen';
+      const roundClass = battleGame?'battle-screen':numberGame?'number-results':fourGame?'four-results':'circle-screen';
       root.className = 'party-screen '+(!s.game?'lobby-screen':r?roundClass:'setup-screen');
       if (!s.game) lobby(root,s,send,(...args)=>panel.open(...args));
       else {
         const host = s.me===s.host;
         const title = el('h1','party-title',GAMES[s.game].title);
         if (watching) title.append(el('span','spectator-status','観戦中'));
-        if (!r || (!battle && !fourGame) || watching) root.append(title);
+        if (!r || (!battleGame && !fourGame) || watching) root.append(title);
         if (watching && !r) root.append(el('p','deck-message','空きができると順番に参加します。'));
-        if (battle) {
-          if (r) renderBattle(root,s,send,sync.serverNow,panel.open);
+        if (battleGame) {
+          if (r) battle.render(root,s,send,sync.serverNow,panel.open);
           else battleSettings(root,s,send);
         } else if (numberGame) {
           if (r) numberClash.render(root,s,send,sync.serverNow);

@@ -6,7 +6,8 @@ import worker from '../dist/server/index.js';
 import {releaseEntries} from '../web/release-data.js';
 import {VERSION} from '../web/version.js';
 import {PLAYER_AVATARS} from '../web/player-profile.js';
-import {FOUR,GAMES} from '../web/games.js';
+import {BATTLE,JOB_BATTLE,FOUR,NUMBER_CLASH,GAMES} from '../web/games.js';
+import {TURN_GRACE_DEFAULTS} from '../web/time-settings.js';
 import {api} from '../server/api.js';
 import {shuffle} from '../server/draw.js';
 
@@ -1326,25 +1327,26 @@ test('update information keeps every past release and filters shared changes by 
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
   const avatarRelease = '5.1.0';
-  assert.deepEqual(tier.map(entry=>entry.version),[avatarRelease,...all.slice(9).map(entry=>entry.version)]);
-  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[VERSION,avatarRelease,'3.0.0']);
+  assert.deepEqual(tier.map(entry=>entry.version),[avatarRelease,...all.slice(10).map(entry=>entry.version)]);
   assert.deepEqual(circle.map(entry=>entry.version),[avatarRelease,'2.0.2','2.0.0']);
-  assert.equal(all[0].version,VERSION);
-  assert.equal(all[0].title,'「名前の知らないあのゲーム」シリーズのバランスを調整');
-  assert.equal(all[1].title,'『せーので四目』を追加');
-  assert.deepEqual(releaseEntries(FOUR).map(entry=>entry.version),['6.0.0']);
-  assert.equal(all[2].title,'プレイヤーアイコンと表示UIを刷新');
-  assert.equal(all[3].title,'『ナンバークラッシュ』を追加');
-  assert.deepEqual(releaseEntries('number-clash').map(entry=>entry.version),[avatarRelease,'5.0.0']);
-  assert.equal(all[4].version,'4.1.1');
-  assert.equal(all[4].title,'ホーム画面用のアプリアイコン・名称を追加');
-  assert.ok(all[4].changes.every(change=>change.gameIds.length===0));
-  assert.equal(all[5].title,'「真・名前の知らないあのゲーム」に表記を統一');
-  assert.equal(all[6].title,'「真・名前の知らないあのゲーム」を追加');
-  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[VERSION,avatarRelease,'4.0.1','4.0.0']);
-  assert.equal(all[7].title,'『名前の知らないあのゲーム』を追加');
-  assert.equal(all[8].version,'2.0.3');
-  assert.ok(all[8].changes.every(change=>change.gameIds.length===0));
+  assert.deepEqual(releaseEntries(BATTLE).map(entry=>entry.version),[VERSION,'6.1.0',avatarRelease,'3.0.0']);
+  assert.deepEqual(releaseEntries(JOB_BATTLE).map(entry=>entry.version),[VERSION,'6.1.0',avatarRelease,'4.0.1','4.0.0']);
+  assert.deepEqual(releaseEntries(NUMBER_CLASH).map(entry=>entry.version),[VERSION,avatarRelease,'5.0.0']);
+  assert.deepEqual(releaseEntries(FOUR).map(entry=>entry.version),[VERSION,'6.0.0']);
+  assert.deepEqual(all.slice(0,10).map(entry=>entry.version),
+    [VERSION,'6.1.0','6.0.0',avatarRelease,'5.0.0','4.1.1','4.0.1','4.0.0','3.0.0','2.0.3']);
+  assert.equal(all[0].title,'時間制限システムの共通化');
+  assert.equal(all[0].changes.length,3);
+  assert.equal(all[1].title,'「名前の知らないあのゲーム」シリーズのバランスを調整');
+  assert.equal(all[2].title,'『せーので四目』を追加');
+  assert.equal(all[3].title,'プレイヤーアイコンと表示UIを刷新');
+  assert.equal(all[4].title,'『ナンバークラッシュ』を追加');
+  assert.equal(all[5].title,'ホーム画面用のアプリアイコン・名称を追加');
+  assert.ok(all[5].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[6].title,'「真・名前の知らないあのゲーム」に表記を統一');
+  assert.equal(all[7].title,'「真・名前の知らないあのゲーム」を追加');
+  assert.equal(all[8].title,'『名前の知らないあのゲーム』を追加');
+  assert.ok(all[9].changes.every(change=>change.gameIds.length===0));
   assert.equal(tier[1].version,'2.0.2');
   assert.equal(tier[2].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
@@ -1417,22 +1419,22 @@ test('boss sweeps at energy cap one and the final damage and player caps reach t
   const watcher = await h.join('観戦者');
   const started = (await host.send('start')).state.round;
   assert.equal(started.players[0].maxHp,3);
-  h.advance(started.settings.readyMs);
+  h.advance(TURN_GRACE_DEFAULTS.readyMs);
   for (const session of sessions) {
     assert.equal((await session.send('battleMove',{turn:1,sequence:1,kind:'charge'})).status,200);
   }
-  h.advance(started.settings.graceMs);
+  h.advance(TURN_GRACE_DEFAULTS.graceMs);
   assert.equal((await watcher.state()).round.players[0].energy,1);
   h.advance(started.settings.resultMs);
   assert.equal((await watcher.state()).round.turn,2);
-  h.advance(started.settings.readyMs);
+  h.advance(TURN_GRACE_DEFAULTS.readyMs);
   const sweep = {turn:2,sequence:1,kind:'sweep'};
   assert.equal((await sessions[1].send('battleMove',sweep)).code,'battleInvalid');
   assert.equal((await host.send('battleMove',sweep)).status,200);
   for (const session of sessions.slice(1)) {
     assert.equal((await session.send('battleMove',{turn:2,sequence:1,kind:'charge'})).status,200);
   }
-  h.advance(started.settings.graceMs);
+  h.advance(TURN_GRACE_DEFAULTS.graceMs);
   const finished = (await watcher.state()).round;
   assert.equal(finished.outcome.team,'boss');
   const detail = (await watcher.history(finished.id)).record;
@@ -1589,11 +1591,11 @@ test('job battle persists private drafts through reconnect, resolves concurrent 
   assert.equal((await h.req('state',null,watcher.token,{'X-App-Version':'3.0.0'})).state.round,null);
 
   for (let i=0;i<12 && r.phase !== 'result';i++) {
-    h.advance(r.settings.readyMs);
+    h.advance(TURN_GRACE_DEFAULTS.readyMs);
     const kind=i%2===0 ? 'charge' : 'strike';
     assert.equal((await resumed.send('battleMove',{turn:r.turn,sequence:1,kind,target:'guest'})).status,200);
     assert.equal((await guest.send('battleMove',{turn:r.turn,sequence:1,kind:'charge'})).status,200);
-    h.advance(r.settings.graceMs);
+    h.advance(TURN_GRACE_DEFAULTS.graceMs);
     r=(await watcher.state()).round;
     if (r.phase==='review') {
       h.advance(r.settings.resultMs);
@@ -1630,12 +1632,13 @@ test('Number Clash uses private, ordered selections, early lock, timeout grace a
   const guests=await Promise.all(Array.from({length:6},(_,i)=>h.join('guest'+i)));
   const state=await host.state();
   assert.deepEqual(state.numberSettings,{handSize:9,penalty:1,carryExtreme:true,seconds:10,
-    readyMs:1000,graceMs:800,revealMs:1000,judgmentMs:2000});
+    revealMs:1000,judgmentMs:2000});
   assert.equal(state.players.filter(p=>p.spectator).length,1);
   const watcher=guests.find(({name})=>state.players.find(p=>p.id===name).spectator);
   const players=[host,...guests.filter(p=>p!==watcher)];
   assert.equal((await watcher.send('settings',{settings:{handSize:12}})).status,409);
-  assert.equal((await host.send('settings',{settings:{handSize:12,seconds:1,readyMs:500,graceMs:400,carryExtreme:false,penalty:2}})).status,200);
+  assert.equal((await host.send('commonSettings',{readyMs:500,graceMs:400})).status,200);
+  assert.equal((await host.send('settings',{settings:{handSize:12,seconds:1,carryExtreme:false,penalty:2}})).status,200);
   assert.equal((await host.send('start')).status,200);
   const initial=(await host.state()).round;
   assert.deepEqual(initial.unused,Array.from({length:12},(_,i)=>i+1));
@@ -1709,7 +1712,8 @@ test('Number Clash final judgment waits before writing one scoped history record
   const host=await h.join('A'), guest=await h.join('B');
   await host.send('browse',{choice:'number-clash'});
   await host.send('choose',{choice:'number-clash'});
-  await host.send('settings',{settings:{readyMs:500,graceMs:400,revealMs:750,judgmentMs:750,seconds:null}});
+  await host.send('commonSettings',{readyMs:500,graceMs:400});
+  await host.send('settings',{settings:{revealMs:750,judgmentMs:750,seconds:null}});
   assert.equal((await host.send('start')).status,200);
   const match=(await host.state()).round.id;
   for (let turn=1;turn<=9;turn++) {
@@ -1818,14 +1822,15 @@ test('four accepts simultaneous revisions privately and commits one result and o
   assert.equal((await host.send('browse',{choice:FOUR})).status,200);
   assert.equal((await host.send('choose',{choice:FOUR})).status,200);
   assert.equal((await host.send('start')).status,409);
-  assert.deepEqual((await host.state()).fourSettings,{starter:'A',size:7,seconds:10,readyMs:1000,dropMs:500});
+  assert.deepEqual((await host.state()).fourSettings,{starter:'A',size:7,seconds:10,dropMs:500});
   let guest = await h.join('B');
   const extras = [];
   for (const name of ['C','D','E']) extras.push(await h.join(name));
   const watcher = extras[2];
   assert.equal((await watcher.state()).players.find(p=>p.id==='E').spectator,true);
   assert.equal((await host.send('settings',{settings:{starter:'E'}})).status,400);
-  assert.equal((await host.send('settings',{settings:{starter:'B',size:9,readyMs:500,seconds:1}})).status,200);
+  assert.equal((await host.send('commonSettings',{readyMs:500,graceMs:400})).status,200);
+  assert.equal((await host.send('settings',{settings:{starter:'B',size:9,seconds:1}})).status,200);
   assert.equal((await host.send('start')).status,200);
   const first = (await host.state()).round;
   assert.deepEqual(first.order,['B','C','D','A']);
@@ -1852,6 +1857,9 @@ test('four accepts simultaneous revisions privately and commits one result and o
   const previousClient = await h.req('state',null,watcher.token,{'X-App-Version':'5.2.0'});
   assert.equal(previousClient.state.round.id,first.id);
   assert.ok((await Promise.all([host,...extras.slice(0,2)].map(p=>submit(p,0)))).every(r=>r.status===200));
+  assert.equal((await watcher.state()).round.phase,'closing');
+  assert.equal((await submit(guest,3,4)).code,'fourClosed');
+  h.advance(400);
   const animation = (await watcher.state()).round;
   assert.equal(animation.phase,'drop');
   assert.deepEqual(animation.animation.drops.map(({id,column,row})=>[id,column,row]),
@@ -1864,18 +1872,32 @@ test('four accepts simultaneous revisions privately and commits one result and o
   assert.equal((await host.state()).round.phase,'drop');
   h.advance(1);
   const second = await host.state();
-  assert.equal(second.round.phase,'select');
+  assert.equal(second.round.phase,'prepare');
+  assert.equal(second.round.startsAt,animation.animation.until+500);
   assert.deepEqual(second.round.order,['C','D','A','B']);
   assert.ok(second.roundPlayers.every(p=>p.mark===null));
   assert.equal((await submit(guest,3,4)).code,'fourClosed');
 
-  h.advance(1000);
-  const [late,watch] = await Promise.all([submit(host,4,1,second.round),watcher.state()]);
+  h.advance(499);
+  assert.equal((await submit(host,4,1,second.round)).code,'fourClosed');
+  h.advance(1);
+  assert.equal((await host.state()).round.phase,'select');
+  assert.equal((await submit(guest,3,4)).code,'fourClosed');
+  h.advance(999);
+  assert.equal((await submit(host,4,1,second.round)).status,200);
+  h.advance(1);
+  assert.equal((await watcher.state()).round.phase,'closing');
+  h.advance(399);
+  assert.equal((await submit(guest,5,1,second.round)).status,200);
+  h.advance(1);
+  const [late,watch] = await Promise.all([submit(host,6,2,second.round),watcher.state()]);
   assert.equal(late.code,'fourClosed');
   assert.equal(watch.round.phase,'drop');
   assert.equal(watch.round.animation.drops.length,4);
+  assert.equal(watch.round.animation.drops.find(drop=>drop.id==='A').column,4);
+  assert.equal(watch.round.animation.drops.find(drop=>drop.id==='B').column,5);
   assert.deepEqual((await host.state()).round,watch.round);
-  h.advance(2000);
+  h.advance(2500);
 
   // A controlled late-game board makes the final request exercise the real D1 history path.
   const raw = h.raw();
@@ -1887,6 +1909,7 @@ test('four accepts simultaneous revisions privately and commits one result and o
   const players = [host,guest,...extras.slice(0,2)];
   assert.ok((await Promise.all(players.map(p=>submit(p,p.name==='D' ? 0 : 1,1,finalTurn))))
     .every(r=>r.status===200));
+  h.advance(400);
   const finalDrop = (await host.state()).round;
   assert.equal(finalDrop.animation.drops.length,1);
   assert.equal(finalDrop.outcome.winner,'D');
@@ -1915,7 +1938,8 @@ test('four resets starter on roster changes and advances without a departed play
   const guest = await h.join('B');
   await host.send('browse',{choice:FOUR});
   await host.send('choose',{choice:FOUR});
-  await host.send('settings',{settings:{starter:'B',seconds:null,readyMs:500}});
+  await host.send('commonSettings',{readyMs:500});
+  await host.send('settings',{settings:{starter:'B',seconds:null}});
   const extra = await h.join('C');
   assert.equal((await host.state()).fourSettings.starter,'A');
   await host.send('settings',{settings:{starter:'C'}});
@@ -1941,5 +1965,71 @@ test('four resets starter on roster changes and advances without a departed play
   await host.send('fourColumn',{turn:1,column:0,sequence:1},s.round);
   assert.equal((await host.state()).round.phase,'select');
   await extra.send('leave');
+  assert.equal((await host.state()).round.phase,'closing');
+  h.advance(800);
   assert.equal((await host.state()).round.phase,'drop');
+});
+
+test('room timing settings default for old rooms and apply independently of game settings',async()=>{
+  const h = harness();
+  const host = await h.join('Host');
+  const guest = await h.join('Guest');
+  const legacy = h.raw();
+  legacy.common = {historyMinutes:60};
+  legacy.battleSettings = {readyMs:3000,graceMs:2000,seconds:5};
+  legacy.fourSettings = {readyMs:500,size:6};
+  h.sqlite.prepare('UPDATE room SET state=?').run(JSON.stringify(legacy));
+  assert.deepEqual((await host.state()).common,{historyMinutes:60,...TURN_GRACE_DEFAULTS});
+  assert.equal(h.raw().battleSettings.readyMs,undefined);
+  assert.equal(h.raw().battleSettings.graceMs,undefined);
+  assert.equal(h.raw().fourSettings.readyMs,undefined);
+
+  assert.equal((await guest.send('commonSettings',{readyMs:750,graceMs:600})).status,409);
+  assert.equal((await host.send('commonSettings',{readyMs:751,graceMs:600})).status,400);
+  assert.equal((await host.send('commonSettings',{readyMs:750,graceMs:'600'})).status,400);
+  assert.equal((await host.state()).common.graceMs,800);
+  const timing = {readyMs:750,graceMs:600};
+  const common = {historyMinutes:60,...timing};
+  assert.equal((await host.send('commonSettings',timing)).status,200);
+
+  for (const [game,seconds,detail] of [
+    [BATTLE,3,{resultMs:750}],
+    [JOB_BATTLE,5,{resultMs:1250}],
+    [NUMBER_CLASH,15,{revealMs:1250,judgmentMs:2500}],
+    [FOUR,null,{dropMs:300}],
+  ]) {
+    assert.equal((await host.send('browse',{choice:game})).status,200);
+    assert.equal((await host.send('choose',{choice:game})).status,200);
+    assert.deepEqual((await guest.state()).common,common);
+    assert.equal((await host.send('settings',{settings:timing})).status,400);
+    const settings = {seconds,...detail};
+    assert.equal((await host.send('settings',{settings})).status,200);
+    let started = await host.send('start');
+    assert.equal(started.status,200);
+    assert.equal((await host.send('commonSettings',{readyMs:1000})).status,409);
+    assert.deepEqual(h.raw().round.timing,timing);
+    assert.deepEqual((await guest.state()).common,common);
+    if (game === JOB_BATTLE) {
+      for (const player of [host,guest]) {
+        const {jobDraft} = (await player.state()).round;
+        started = await player.send('battleJob',{job:jobDraft.candidates[0]});
+        assert.equal(started.status,200);
+      }
+    }
+    const {round} = started.state;
+    assert.equal(round.startsAt - started.at,750);
+    assert.equal(round.endsAt,seconds === null ? null : round.startsAt + seconds * 1000);
+    for (const [key,value] of Object.entries(settings)) assert.equal(round.settings[key],value);
+    assert.equal(round.settings.readyMs,undefined);
+    assert.equal((await host.send('lobby')).status,200);
+    assert.deepEqual((await host.state()).common,common);
+  }
+  const raw = h.raw();
+  assert.equal(raw.battleSettings.resultMs,750);
+  assert.equal(raw.jobBattleSettings.resultMs,1250);
+  assert.equal(raw.numberSettings.judgmentMs,2500);
+  assert.equal(raw.fourSettings.dropMs,300);
+  await host.send('leave');
+  await guest.send('leave');
+  assert.deepEqual((await (await h.join('Next')).state()).common,common);
 });

@@ -1,4 +1,5 @@
 import {JOB_ACTIONS,JOBS} from './battle-jobs.js';
+import {DEFAULT_TURN_SECONDS,RESULT_DISPLAY_MS_CHOICES,TURN_SECONDS_CHOICES} from './time-settings.js';
 
 export const BATTLE_MODES = {royale:'バトルロイヤル', teams:'チーム戦', boss:'ボス戦'};
 export const TEAM_NAMES = {pink:'ピンクチーム', blue:'水色チーム', boss:'ボス', party:'チーム側'};
@@ -8,14 +9,12 @@ export const BATTLE_CHOICES = {
   energy:[1,2,3,4,5],
   hitCap:[1,2,3,4,5,null],
   defenseLimit:[1,2,3,4,5,null],
-  seconds:[1,3,5,10,15,20,30,45,60,null],
-  readyMs:[500,750,1000,1250,1500,1750,2000,2250,2500,2750,3000],
-  graceMs:[400,600,800,1000,1200,1400,1600,1800,2000],
-  resultMs:[750,1000,1250,1500,1750,2000,2250,2500,2750,3000],
+  seconds:TURN_SECONDS_CHOICES,
+  resultMs:RESULT_DISPLAY_MS_CHOICES,
 };
 export const BATTLE_DEFAULTS = {
-  mode:'royale', hp:3, energy:3, hitCap:1, defenseLimit:3, seconds:10,
-  readyMs:1000, graceMs:800, resultMs:1500, bossId:null,
+  mode:'royale', hp:3, energy:3, hitCap:1, defenseLimit:3, seconds:DEFAULT_TURN_SECONDS,
+  resultMs:1500, bossId:null,
 };
 export const BOSS_STATS = {hpMultiplier:3,charge:2,strikeDamage:2,sweepCost:1};
 export const ACTIONS = {

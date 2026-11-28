@@ -2,7 +2,7 @@ import {ACTIONS,BATTLE_CHOICES,BOSS_STATS,actionCost,actionTargets,areEnemies,at
 import {JOBS,JOB_BATTLE_FIXED,JOB_CANDIDATE_COUNT} from '../web/battle-jobs.js';
 import {shuffle} from './draw.js';
 import {requireGame} from './room.js';
-import {advanceTimedSelection,beginTimedTurn} from './timed-turn.js';
+import {acceptsTimedMove,advanceTimedSelection,allTimedPlayersReady,beginTimedTurn,recordTimedMove,turnGrace} from './timed-turn.js';
 
 const pass = () => ({kind:'charge',target:null});
 
@@ -37,10 +37,10 @@ function nextTurn(round, now) {
   round.reviewUntil = null;
 }
 
-export function startBattle(ids, settings, teams, now, withJobs = false) {
+export function startBattle(ids, settings, teams, now, withJobs = false, timing) {
   const boss = !withJobs && settings.mode === 'boss' ? settings.bossId ?? shuffle(ids)[0] : null;
   const match = {
-    id:crypto.randomUUID(), ids, version:0, turn:0, settings:{...settings}, boss, previous:null, outcome:null,
+    id:crypto.randomUUID(), ids, version:0, turn:0, settings:{...settings}, timing:turnGrace(timing), boss, previous:null, outcome:null,
     players:ids.map(id => {
       const team = settings.mode === 'teams' ? (teams.pink.includes(id) ? 'pink' : 'blue') :
         boss !== null ? (id === boss ? 'boss' : 'party') : null;
@@ -86,20 +86,14 @@ function validatedMove(round, player, move) {
 
 export function submitBattleMove(round, playerId, request, now) {
   requireGame(round && request.turn === round.turn,'次のターンが始まりました。',409,'battleClosed');
-  const {moves} = round;
-  requireGame((round.phase === 'select' || round.phase === 'closing') &&
-    (round.closesAt === null || now < round.closesAt),
-  'このターンの受付は終了しました。',409,'battleClosed');
+  requireGame(acceptsTimedMove(round,request.turn,now),'このターンの受付は終了しました。',409,'battleClosed');
   const player = round.players.find(entry => entry.id === playerId);
   requireGame(player?.hp > 0,'観戦中は行動できません。',403,'forbidden');
-  requireGame(Number.isSafeInteger(request.sequence) && request.sequence > 0,'行動順序が無効です。',400);
-  const previous = Object.hasOwn(moves,playerId) ? moves[playerId] : null;
-  if (previous && request.sequence <= previous.sequence) return;
-  const move = validatedMove(round,player,{kind:request.kind,target:request.target});
-  requireGame(move,'現在選べない行動です。',409,'battleInvalid');
-  // A display name can also be a property name such as "__proto__".
-  Object.defineProperty(moves,playerId,{value:{...move,sequence:request.sequence}, enumerable:true, configurable:true});
-  round.version++;
+  recordTimedMove(round,playerId,request.sequence,()=>{
+    const move = validatedMove(round,player,{kind:request.kind,target:request.target});
+    requireGame(move,'現在選べない行動です。',409,'battleInvalid');
+    return move;
+  },'行動順序');
 }
 
 export function advanceBattle(round, now, departed) {
@@ -108,8 +102,7 @@ export function advanceBattle(round, now, departed) {
     if (now >= round.reviewUntil) nextTurn(round,now);
     return;
   }
-  const allReady = () => round.players.every(player => player.hp === 0 || Object.hasOwn(round.moves,player.id) ||
-    (round.endsAt === null && departed.has(player.id)));
+  const allReady = () => allTimedPlayersReady(round,departed,round.players.filter(p=>p.hp > 0).map(p=>p.id));
   if (!advanceTimedSelection(round,now,allReady)) return;
   const resolved = resolveBattleTurn(round);
   round.players = resolved.players;

@@ -13,6 +13,7 @@ import {numberSettings,startNumberClash,submitNumberCard} from './number-clash.j
 import {NUMBER_DEFAULTS} from '../web/number-clash-rules.js';
 import {fourSettings,startFour,submitFour} from './four.js';
 import {FOUR_DEFAULTS} from '../web/four-rules.js';
+import {TURN_GRACE_CHOICES} from '../web/time-settings.js';
 import {VERSION,newerVersion} from '../web/version.js';
 
 const readyPlayers = (s,now) => gameMembers(s).filter(p => isOnline(p,now));
@@ -58,8 +59,18 @@ export function action(s, p, a, now, clientVersion) {
   }
   if (a.type === 'commonSettings') {
     requireGame(host,'共通設定を変更できるのはホストです。');
-    requireGame(HISTORY_MINUTES.includes(a.minutes),'履歴の保存期間が無効です。',400);
-    s.common.historyMinutes = a.minutes;
+    const timingKeys = Object.keys(TURN_GRACE_CHOICES).filter(key=>Object.hasOwn(a,key));
+    const hasMinutes = Object.hasOwn(a,'minutes');
+    requireGame(hasMinutes || timingKeys.length > 0,'共通設定が指定されていません。',400);
+    if (hasMinutes) requireGame(HISTORY_MINUTES.includes(a.minutes),'履歴の保存期間が無効です。',400);
+    if (timingKeys.length) {
+      requireGame(!playing(s),'対戦中は通信猶予を変更できません。');
+      for (const key of timingKeys) {
+        requireGame(TURN_GRACE_CHOICES[key].includes(a[key]),'通信猶予が範囲外です。',400);
+      }
+    }
+    if (hasMinutes) s.common.historyMinutes = a.minutes;
+    for (const key of timingKeys) s.common[key] = a[key];
     return;
   }
   if (a.type === 'shuffle') {
@@ -94,7 +105,7 @@ export function action(s, p, a, now, clientVersion) {
   }
   if (s.game === FOUR && a.type === 'fourColumn') {
     requireGame(r?.id === a.round,'対戦が切り替わりました。',409,'fourClosed');
-    submitFour(r,p.id,a);
+    submitFour(r,p.id,a,now);
     return;
   }
   if (s.game === NUMBER_CLASH && a.type === 'numberCard') {
@@ -143,11 +154,11 @@ export function action(s, p, a, now, clientVersion) {
     if (s.game === CIRCLE) s.round = startCircle(ids,s.host);
     else if (isBattle(s.game)) {
       const {settings,teams} = battleRoster(s);
-      s.round = startBattle(ids,settings,balanceTeams(ids,teams),now,s.game === JOB_BATTLE);
+      s.round = startBattle(ids,settings,balanceTeams(ids,teams),now,s.game === JOB_BATTLE,s.common);
     } else if (s.game === NUMBER_CLASH) {
-      s.round = startNumberClash(ids,{...NUMBER_DEFAULTS,...s.numberSettings},now);
+      s.round = startNumberClash(ids,{...NUMBER_DEFAULTS,...s.numberSettings},now,s.common);
     } else if (s.game === FOUR) {
-      s.round = startFour(ids,{...FOUR_DEFAULTS,...s.fourSettings},now);
+      s.round = startFour(ids,{...FOUR_DEFAULTS,...s.fourSettings},now,s.common);
     } else start(s,ids);
     s.round.colors = players.map(p => p.color);
     s.round.avatarIds = players.map(p => resolveAvatarId(p.avatarId,p.color));

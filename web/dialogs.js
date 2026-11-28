@@ -11,6 +11,8 @@ import {NUMBER_RULES,numberSettings} from './number-clash.js';
 import {FOUR_RULES,fourSettings} from './four.js';
 import {gameCard} from './party.js';
 import {releaseHistory} from './releases.js';
+import {setting} from './settings.js';
+import {TURN_GRACE_CHOICES} from './time-settings.js';
 
 export function dialogs(getState,send,loadHistory) {
   const overlay = $('overlay'), dialog = $('dialog'), peekButton = $('peek-board');
@@ -148,7 +150,7 @@ export function dialogs(getState,send,loadHistory) {
         s?.battle,s?.numberSettings,s?.fourSettings,isBattle(s?.game) || s?.game===FOUR ? s.players : null]:null,
       ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online,p.spectator,p.avatarId]),r?.phase]:null,
       kind==='gameList'?[s?.selectedGame,s?.host]:null,
-      kind==='commonSettings'?[s?.common,s?.host]:null]);
+      kind==='commonSettings'?[s?.common,s?.host,s?.playing]:null]);
     if (!force && key===lastKey) return;
     const oldInput = dialog.querySelector('input[type=text]');
     const preserve = oldInput && oldInput.dataset.key === String(active?.data?.card?.id ?? r?.input?.id ?? r?.id);
@@ -245,6 +247,11 @@ export function dialogs(getState,send,loadHistory) {
       };
       label.append(select);
       body.append(label);
+      const timingLabels = {readyMs:'ターン開始前の通信猶予',graceMs:'ターン終了時の通信猶予'};
+      for (const [key,title] of Object.entries(timingLabels)) {
+        body.append(setting(title,key,TURN_GRACE_CHOICES[key].map(ms=>[ms,ms+'ms']),
+          s.common[key],s.host === s.me && !s.playing,(_,fields)=>act('commonSettings',fields.settings)));
+      }
     } else if (kind==='circleLog') {
       const list = el('ol','circle-log');
       for (const event of [...r.log].reverse()) list.append(el('li','',event));
