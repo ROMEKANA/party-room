@@ -57,7 +57,7 @@ test('cover and guard protect their designated players against all hits, includi
   assert.equal(player(guardedAlly,'b').hp,3);
 });
 
-test('damage cap is applied to summed hits and a player eliminated this turn acts simultaneously',()=>{
+test('hit cap selects attacks by source on equal damage and a player eliminated this turn still acts',()=>{
   const actions = {a:['strike','f'],d:['strike','a'],e:['strike','a'],f:['strike','b']};
   for (const [hitCap,hp] of [[1,1],[2,0],[null,0]]) {
     const result = resolve(match('teams',{hitCap},{a:{hp:2},f:{hp:1}}),actions);
@@ -65,7 +65,12 @@ test('damage cap is applied to summed hits and a player eliminated this turn act
     assert.equal(player(result,'f').hp,0);
     assert.equal(player(result,'b').hp,2);
     assert.equal(result.actions.f.eliminated,true);
+    assert.equal(result.actions.d.effects[0].result,'hit');
+    assert.equal(result.actions.e.effects[0].result,hitCap === 1 ? 'capped' : 'hit');
   }
+  const royale = resolve(match('royale'),{d:['strike','a'],e:['strike','a']});
+  assert.equal(player(royale,'a').hp,2);
+  assert.deepEqual(royale.actions.e.effects,[{target:'a',result:'capped',amount:0}]);
   const draw = resolve(match('royale',{hp:1},{d:{hp:0},e:{hp:0},f:{hp:0}}),
     {a:['strike','b'],b:['strike','c'],c:['strike','a']});
   assert.deepEqual(draw.outcome,{draw:true});
@@ -91,14 +96,14 @@ test('defense limit is shared, energy and targets use start-of-turn state, and g
 test('boss and team actions use asymmetric rules, and player order does not change stats or outcomes',()=>{
   const r = match('boss',{bossId:'b',energy:4},{b:{energy:0},a:{energy:0}});
   const boss = r.players.find(p=>p.id === r.boss);
-  assert.equal(boss.maxHp,6);
+  assert.deepEqual([boss.hp,boss.maxHp],[9,9]);
   assert.deepEqual(availableActions(r,boss),['charge','guard','strike','sweep']);
   assert.deepEqual(availableActions(r,r.players[0]),['charge','guard','strike','cover','give']);
   const actions = {a:['sweep'],b:['charge'],c:['strike','b'],d:['cover','a']};
   const result = resolve(r,actions);
   assert.equal(player(result,'b').energy,2);
   assert.equal(player(result,'a').energy,1);
-  assert.equal(player(result,'b').hp,5);
+  assert.equal(player(result,'b').hp,8);
   const reverse = resolve({...r,players:[...r.players].reverse()},actions);
   assert.deepEqual(result.players,[...reverse.players].reverse());
   assert.deepEqual(result.actions,reverse.actions);
@@ -107,4 +112,25 @@ test('boss and team actions use asymmetric rules, and player order does not chan
   assert.deepEqual(availableActions(duel,duel.players[0]),['charge','guard','strike']);
   const lowEnergy = match('teams',{energy:2});
   assert.ok(!availableActions(lowEnergy,lowEnergy.players[0]).includes('sweep'));
+});
+
+test('boss attacks cost one, apply the shared cap and cancel only against the chosen enemy',()=>{
+  for (const energy of [1,2]) {
+    const r = match('boss',{bossId:'a',hp:4,energy},{a:{energy:1}});
+    const boss = r.players[0];
+    assert.deepEqual([boss.hp,boss.maxHp],[12,12]);
+    assert.equal(canUseAction(r,boss,'sweep'),true);
+    assert.equal(canUseAction(r,r.players[1],'sweep'),false);
+    const strike = resolve(r,{a:['strike','b']});
+    assert.equal(player(strike,'a').energy,0);
+    assert.equal(player(strike,'b').hp,2);
+    assert.deepEqual(strike.actions.a.effects,[{target:'b',result:'hit',amount:2}]);
+    const sweep = resolve(r,{a:['sweep'],c:['guard']});
+    assert.equal(player(sweep,'a').energy,0);
+    assert.deepEqual(sweep.players.slice(1).map(p=>p.hp),[3,4,3]);
+    const exchange = resolve(r,{a:['strike','b'],b:['strike','a'],c:['strike','a'],d:['strike','a']});
+    assert.deepEqual(exchange.players.map(p=>p.hp),[11,4,4,4]);
+    assert.deepEqual(['a','b','c','d'].map(id=>exchange.actions[id].effects[0].result),['cancel','cancel','hit','capped']);
+    assert.equal(player(resolve(r,{}),'a').energy,energy);
+  }
 });

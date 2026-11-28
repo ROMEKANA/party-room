@@ -82,7 +82,12 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'『せーので四目』を追加',changes:[
+  {version:VERSION,title:'「名前の知らないあのゲーム」シリーズのバランスを調整',changes:[
+    {description:'真では、僧侶の回復の消費を2、戦士の全体攻撃を各1ダメージに変更しました。武闘家のエネルギー上限は2になり、全体攻撃は使えなくなりました。',gameIds:[JOB_BATTLE]},
+    {description:'通常版のボス戦で、ボスの初期・最大HPを基本HPの3倍にし、単体攻撃を2ダメージに強化しました。全体攻撃の消費は1になりました。',gameIds:[BATTLE]},
+    {description:'両ゲームで、被弾上限を有効な攻撃・反撃の件数に統一しました。ダメージの大きい攻撃から優先されます。',gameIds:[BATTLE,JOB_BATTLE]},
+  ]},
+  {version:'6.0.0',title:'『せーので四目』を追加',changes:[
     {description:'2〜4人で列を同時に選び、ターンごとに変わる順番でコマを落とします。タテ・ヨコ・ナナメに先に4つつなげた人の勝ちです。',gameIds:[FOUR]},
     {description:'6×6〜9×9の盤面に対応し、対戦履歴で最終盤面と勝利したコマの並びを確認できます。',gameIds:[FOUR]},
   ]},

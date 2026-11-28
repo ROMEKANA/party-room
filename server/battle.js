@@ -1,4 +1,4 @@
-import {ACTIONS,BATTLE_CHOICES,actionCost,actionTargets,areEnemies,canUseAction} from '../web/battle-rules.js';
+import {ACTIONS,BATTLE_CHOICES,BOSS_STATS,actionCost,actionTargets,areEnemies,attackDamage,canUseAction,energyLimit} from '../web/battle-rules.js';
 import {JOBS,JOB_BATTLE_FIXED,JOB_CANDIDATE_COUNT} from '../web/battle-jobs.js';
 import {shuffle} from './draw.js';
 import {requireGame} from './room.js';
@@ -38,13 +38,13 @@ function nextTurn(round, now) {
 }
 
 export function startBattle(ids, settings, teams, now, withJobs = false) {
-  const boss = settings.mode === 'boss' ? settings.bossId ?? shuffle(ids)[0] : null;
+  const boss = !withJobs && settings.mode === 'boss' ? settings.bossId ?? shuffle(ids)[0] : null;
   const match = {
     id:crypto.randomUUID(), ids, version:0, turn:0, settings:{...settings}, boss, previous:null, outcome:null,
     players:ids.map(id => {
       const team = settings.mode === 'teams' ? (teams.pink.includes(id) ? 'pink' : 'blue') :
-        settings.mode === 'boss' ? (id === boss ? 'boss' : 'party') : null;
-      const maxHp = withJobs ? settings.maxHp : id === boss ? settings.hp * 2 : settings.hp;
+        boss !== null ? (id === boss ? 'boss' : 'party') : null;
+      const maxHp = withJobs ? settings.maxHp : id === boss ? settings.hp * BOSS_STATS.hpMultiplier : settings.hp;
       return {id,team,maxHp,hp:withJobs ? settings.hp : maxHp,energy:0,defense:0};
     }),
   };
@@ -157,7 +157,6 @@ export function resolveBattleTurn(round) {
   };
   for (const [source,targets] of outgoing) {
     const {kind} = moves.get(source);
-    const job = JOBS[byId.get(source).job];
     for (const target of targets) {
       let result;
       let amount;
@@ -172,10 +171,10 @@ export function resolveBattleTurn(round) {
         addHit(source,target,damage,'counter');
       } else {
         result = 'hit';
-        amount = kind === 'pierce' ? job.pierceDamage : job?.damageMultiplier ?? 1;
+        amount = attackDamage(byId.get(source),kind);
         addHit(target,source,amount,kind);
       }
-      addEffect(source,{target,result,...(round.withJobs && amount !== undefined ? {amount} : {})});
+      addEffect(source,{target,result,...(amount !== undefined ? {amount} : {})});
     }
   }
 
@@ -183,21 +182,19 @@ export function resolveBattleTurn(round) {
   const hitCap = round.settings.hitCap ?? Infinity;
   const damage = new Map();
   for (const [target,list] of hits) {
-    if (!round.withJobs) {
-      damage.set(target,Math.min(list.length,hitCap));
-      continue;
-    }
     list.sort((a,b) => b.damage-a.damage || order(a.source,b.source));
-    const applied = list.slice(0,hitCap);
-    damage.set(target,applied.reduce((sum,hit)=>sum+hit.damage,0));
-    for (const hit of list) {
+    let total = 0;
+    for (const [index,hit] of list.entries()) {
+      const applied = index < hitCap;
+      if (applied) total += hit.damage;
       if (hit.kind === 'counter') {
-        addEffect(hit.source,{target,result:'counter',amount:applied.includes(hit) ? hit.damage : 0});
-      } else if (!applied.includes(hit)) {
+        addEffect(hit.source,{target,result:'counter',amount:applied ? hit.damage : 0});
+      } else if (!applied) {
         const effect = effects.get(hit.source).find(entry=>entry.target === target);
         Object.assign(effect,{result:'capped',amount:0});
       }
     }
+    damage.set(target,total);
   }
 
   const heals = new Map();
@@ -205,12 +202,12 @@ export function resolveBattleTurn(round) {
   const remaining = new Map();
   const gains = new Map();
   const stolen = new Map();
-  const cap = round.settings.energy;
   for (const player of living) {
     const {kind,target} = moves.get(player.id);
     const job = JOBS[player.job];
-    remaining.set(player.id,player.energy-actionCost(player,kind));
-    const charge = kind === 'charge' ? (job?.charge ?? (player.team === 'boss' ? 2 : 1)) : 0;
+    const cap = energyLimit(round.settings,player);
+    remaining.set(player.id,Math.min(cap,player.energy)-actionCost(player,kind));
+    const charge = kind === 'charge' ? (job?.charge ?? (player.team === 'boss' ? BOSS_STATS.charge : 1)) : 0;
     const guardGain = guardSuccess.has(player.id) ? job?.guardEnergy ?? 0 : 0;
     gains.set(player.id,charge+guardGain+(gifts.get(player.id) ?? 0));
     if (guardGain) addEffect(player.id,{target:player.id,result:'guardEnergy',amount:Math.min(guardGain,cap-player.energy)});
@@ -229,6 +226,7 @@ export function resolveBattleTurn(round) {
       const {kind,target} = moves.get(source);
       const steal = JOBS[byId.get(source).job]?.steal;
       if (!steal || kind !== 'strike' || !effects.get(source)?.some(effect=>['hit','capped'].includes(effect.result))) continue;
+      const cap = energyLimit(round.settings,byId.get(source));
       const capacity = Math.max(0,cap-remaining.get(source)-gains.get(source));
       const amount = Math.min(steal,remaining.get(target),capacity);
       if (!amount) continue;
@@ -260,7 +258,8 @@ export function resolveBattleTurn(round) {
     const action = ACTIONS[move.kind];
     const nextHp = player.hp-(damage.get(player.id) ?? 0);
     const hp = Math.max(0,round.withJobs ? Math.min(player.maxHp,nextHp+(heals.get(player.id) ?? 0)) : nextHp);
-    const energy = Math.min(cap,remaining.get(player.id)+gains.get(player.id)+(stolen.get(player.id) ?? 0));
+    const energy = Math.min(energyLimit(round.settings,player),
+      remaining.get(player.id)+gains.get(player.id)+(stolen.get(player.id) ?? 0));
     const defense = action.defense ? player.defense+1 : 0;
     outcomes.set(player.id,{...move,effects:effects.get(player.id) ?? [],
       hpDelta:hp-player.hp,energyDelta:energy-player.energy,eliminated:hp === 0});
@@ -285,7 +284,7 @@ export function battleView(round, id, roster = []) {
     } : {}),
     players:round.players.map((player,index) => {
       const display = roster[index];
-      return {...player,color:round.colors?.[index],avatarId:display?.avatarId,
+      return {...player,maxEnergy:energyLimit(settings,player),color:round.colors?.[index],avatarId:display?.avatarId,
         online:display?.online ?? false,submitted:Object.hasOwn(round.moves,player.id)};
     }),
     ownMove:current,

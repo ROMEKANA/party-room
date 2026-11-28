@@ -1326,24 +1326,25 @@ test('update information keeps every past release and filters shared changes by 
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
   const avatarRelease = '5.1.0';
-  assert.deepEqual(tier.map(entry=>entry.version),[avatarRelease,...all.slice(8).map(entry=>entry.version)]);
-  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[avatarRelease,'3.0.0']);
+  assert.deepEqual(tier.map(entry=>entry.version),[avatarRelease,...all.slice(9).map(entry=>entry.version)]);
+  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[VERSION,avatarRelease,'3.0.0']);
   assert.deepEqual(circle.map(entry=>entry.version),[avatarRelease,'2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.equal(all[0].title,'『せーので四目』を追加');
-  assert.deepEqual(releaseEntries(FOUR).map(entry=>entry.version),[VERSION]);
-  assert.equal(all[1].title,'プレイヤーアイコンと表示UIを刷新');
-  assert.equal(all[2].title,'『ナンバークラッシュ』を追加');
+  assert.equal(all[0].title,'「名前の知らないあのゲーム」シリーズのバランスを調整');
+  assert.equal(all[1].title,'『せーので四目』を追加');
+  assert.deepEqual(releaseEntries(FOUR).map(entry=>entry.version),['6.0.0']);
+  assert.equal(all[2].title,'プレイヤーアイコンと表示UIを刷新');
+  assert.equal(all[3].title,'『ナンバークラッシュ』を追加');
   assert.deepEqual(releaseEntries('number-clash').map(entry=>entry.version),[avatarRelease,'5.0.0']);
-  assert.equal(all[3].version,'4.1.1');
-  assert.equal(all[3].title,'ホーム画面用のアプリアイコン・名称を追加');
-  assert.ok(all[3].changes.every(change=>change.gameIds.length===0));
-  assert.equal(all[4].title,'「真・名前の知らないあのゲーム」に表記を統一');
-  assert.equal(all[5].title,'「真・名前の知らないあのゲーム」を追加');
-  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[avatarRelease,'4.0.1','4.0.0']);
-  assert.equal(all[6].title,'『名前の知らないあのゲーム』を追加');
-  assert.equal(all[7].version,'2.0.3');
-  assert.ok(all[7].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[4].version,'4.1.1');
+  assert.equal(all[4].title,'ホーム画面用のアプリアイコン・名称を追加');
+  assert.ok(all[4].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[5].title,'「真・名前の知らないあのゲーム」に表記を統一');
+  assert.equal(all[6].title,'「真・名前の知らないあのゲーム」を追加');
+  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[VERSION,avatarRelease,'4.0.1','4.0.0']);
+  assert.equal(all[7].title,'『名前の知らないあのゲーム』を追加');
+  assert.equal(all[8].version,'2.0.3');
+  assert.ok(all[8].changes.every(change=>change.gameIds.length===0));
   assert.equal(tier[1].version,'2.0.2');
   assert.equal(tier[2].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
@@ -1407,7 +1408,36 @@ test('battle: every mode supports its prescribed counts and team setup stays bal
   }
   const {host} = await battleRoom(['A','B','C','D'],{mode:'boss'});
   const r = (await host.send('start')).state.round;
-  assert.ok(r.players.some(p=>p.id === r.boss && p.maxHp === 6));
+  assert.ok(r.players.some(p=>p.id === r.boss && p.hp === 9 && p.maxHp === 9));
+});
+
+test('boss sweeps at energy cap one and the final damage and player caps reach the history',async()=>{
+  const {h,host,sessions} = await battleRoom(['A','B','C','D'],
+    {mode:'boss',bossId:'A',hp:1,energy:1,seconds:null});
+  const watcher = await h.join('観戦者');
+  const started = (await host.send('start')).state.round;
+  assert.equal(started.players[0].maxHp,3);
+  h.advance(started.settings.readyMs);
+  for (const session of sessions) {
+    assert.equal((await session.send('battleMove',{turn:1,sequence:1,kind:'charge'})).status,200);
+  }
+  h.advance(started.settings.graceMs);
+  assert.equal((await watcher.state()).round.players[0].energy,1);
+  h.advance(started.settings.resultMs);
+  assert.equal((await watcher.state()).round.turn,2);
+  h.advance(started.settings.readyMs);
+  const sweep = {turn:2,sequence:1,kind:'sweep'};
+  assert.equal((await sessions[1].send('battleMove',sweep)).code,'battleInvalid');
+  assert.equal((await host.send('battleMove',sweep)).status,200);
+  for (const session of sessions.slice(1)) {
+    assert.equal((await session.send('battleMove',{turn:2,sequence:1,kind:'charge'})).status,200);
+  }
+  h.advance(started.settings.graceMs);
+  const finished = (await watcher.state()).round;
+  assert.equal(finished.outcome.team,'boss');
+  const detail = (await watcher.history(finished.id)).record;
+  assert.deepEqual(detail.players.map(p=>[p.hp,p.energy,p.maxEnergy]),[[3,0,1],[0,1,1],[0,1,1],[0,1,1]]);
+  assert.deepEqual(detail.previous.actions.A.effects,['B','C','D'].map(target=>({target,result:'hit',amount:1})));
 });
 
 test('battle: secret actions, concurrent changes, grace deadlines, once-only history and version compatibility',async()=>{
@@ -1575,7 +1605,8 @@ test('job battle persists private drafts through reconnect, resolves concurrent 
   const history=await watcher.history();
   assert.equal(history.record.length,1);
   assert.equal(history.record[0].gameId,choice);
-  assert.deepEqual((await watcher.history(r.id)).record.players.map(p=>p.job),[hostJob,guestJob]);
+  assert.deepEqual((await watcher.history(r.id)).record.players.map(p=>[p.job,p.maxEnergy]),
+    [hostJob,guestJob].map(job=>[job,job === 'fighter' ? 2 : 3]));
   assert.equal((await watcher.send('leave')).status,200);
   const replay=(await resumed.send('start')).state.round;
   assert.equal(replay.phase,'jobs');

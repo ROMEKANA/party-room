@@ -2,7 +2,7 @@ import {setting} from './settings.js';
 import {turnIsOpen,turnTimeFraction,turnTimeLabel} from './timed-turn.js';
 import {button,el} from './board.js';
 import {playerDisplay} from './player-display.js';
-import {ACTIONS,BATTLE_CHOICES,BATTLE_MODES,TEAM_NAMES,actionCost,actionTargets,availableActions,canUseAction} from './battle-rules.js';
+import {ACTIONS,BATTLE_CHOICES,BATTLE_MODES,BOSS_STATS,TEAM_NAMES,actionCost,actionTargets,availableActions,canUseAction} from './battle-rules.js';
 
 import {JOB_BATTLE} from './games.js';
 import {JOBS,JOB_BATTLE_FIXED,JOB_CANDIDATE_COUNT} from './battle-jobs.js';
@@ -11,16 +11,16 @@ export const BATTLE_RULES = [
   ['同時ターン制','全員が同時に行動を選びます。全員が選ぶか制限時間になると受付を締め切り、結果をまとめて公開します。未選択のときは溜めるになります。'],
   ['基本アクション','溜めるとエネルギー＋1。ガードは自分への攻撃を防ぎます。単体攻撃はエネルギー1で敵1人、全体攻撃は3で敵全員に1ダメージを与えます。'],
   ['攻撃の相殺','互いに攻撃した2人の間では攻撃を相殺します。敵同士が全体攻撃を選ぶと、そのターンは全員の攻撃が無効です。防御・相殺されてもエネルギーは消費します。'],
+  ['被弾上限','防御や相殺のあと、有効な攻撃と反撃を被弾した人ごとに数えます。ダメージの大きい順に上限の件数まで採用し、同じダメージなら攻撃者IDの昇順です。「なし」ではすべて採用します。上限が1件でも、2ダメージの攻撃は2ダメージ入ります。'],
   ['バトルロイヤル','2〜10人で対戦します。最後まで生き残った1人が勝利します。'],
   ['チーム戦','同人数の2チームで対戦します。エネルギー1を味方に渡したり、味方への攻撃をかばったりできます。ガードとかばうは連続防御回数を共有します。'],
-  ['ボス戦','ボス1人とチーム側3人で対戦します。ボスの初期HPは2倍で、溜めるとエネルギー＋2。チーム側には全体攻撃がありません。'],
+  ['ボス戦',`ボス1人とチーム側3人で対戦します。ボスの初期・最大HPは基本HPの${BOSS_STATS.hpMultiplier}倍で、溜めるとエネルギー＋${BOSS_STATS.charge}。単体攻撃はエネルギー${ACTIONS.strike.cost}で敵1人に${BOSS_STATS.strikeDamage}ダメージ、全体攻撃は${BOSS_STATS.sweepCost}で生存中の敵全員に各1ダメージです。チーム側には全体攻撃がありません。`],
   ['引き分け','全プレイヤー、または両チームが全滅すると引き分けです。'],
 ];
 
 export const JOB_BATTLE_RULES = [
   ...BATTLE_RULES.filter(([title])=>title !== 'ボス戦'),
-  ['職業を選ぶ',`全10職業からランダムに配られた${JOB_CANDIDATE_COUNT}候補のうち1つを確定します。全員が確定すると同時に公開されます。基本初期HPと最大HPは${JOB_BATTLE_FIXED.hp}、エネルギー上限は${JOB_BATTLE_FIXED.energy}です。`],
-  ['被弾上限','防御や相殺後に残った攻撃を1件ずつ数え、ダメージの大きい攻撃を優先します。上限1件でも戦士の攻撃は2ダメージです。反撃のダメージにも上限を適用します。'],
+  ['職業を選ぶ',`全10職業からランダムに配られた${JOB_CANDIDATE_COUNT}候補のうち1つを確定します。全員が確定すると同時に公開されます。基本初期HPと最大HPは${JOB_BATTLE_FIXED.hp}、基本のエネルギー上限は${JOB_BATTLE_FIXED.energy}です。`],
   ...Object.values(JOBS).map(job=>[job.icon+' '+job.name,
     job.description+(job.action ? ' 消費エネルギー '+ACTIONS[job.action].cost+'。' : '')]),
 ];
@@ -34,7 +34,8 @@ const detailFields = {
 };
 const formatSetting = (key,value) => value === null ? 'なし' :
   key === 'mode' ? BATTLE_MODES[value] : key === 'seconds' ? value+'秒' :
-    key === 'defenseLimit' ? value+'回' : key in detailFields ? value+'ms' : String(value);
+    key === 'defenseLimit' ? value+'回' : key === 'hitCap' ? value+'件' :
+      key in detailFields ? value+'ms' : String(value);
 const signed = value => value > 0 ? '+'+value : String(value);
 
 export function battleSettings(root,s,send,tab = null) {
@@ -108,6 +109,7 @@ export function battleSettings(root,s,send,tab = null) {
     right.append(el('h2','setup-heading','ボス戦'),
       setting('ボス','bossId',[[null,'ランダム'],...players.map(p=>[p.id,p.id])],settings.bossId,editable,send));
     if (round) right.append(el('p','deck-message','今回のボス '+round.boss));
+    else right.append(el('p','deck-message','ボスの初期・最大HP '+settings.hp*BOSS_STATS.hpMultiplier));
   }
   grid.append(left,right);
   root.append(grid);
@@ -132,7 +134,13 @@ function stat(icon,label,value,max,delta,animate) {
   return line;
 }
 
-const effectNames = {hit:'命中',block:'防御',cancel:'相殺'};
+const effectNames = {hit:'命中',block:'防御',cancel:'相殺',capped:'被弾上限'};
+const battleEffect = effect => effect.result === 'hit' && effect.amount > 1 ?
+  effect.amount+'ダメージ' : effectNames[effect.result];
+const legacyJobDescriptions = {
+  warrior:'単体攻撃と全体攻撃のダメージが2倍になります。',
+  fighter:'溜めるとエネルギーを2獲得します。',
+};
 const jobEffect = effect => ({
   hit:effect.amount+'ダメージ',block:'防御',cancel:'相殺',countered:'反撃で無効',
   counter:effect.amount ? '単体攻撃を無効・反撃 '+effect.amount+'ダメージ' : '単体攻撃を無効・反撃は被弾上限',
@@ -144,8 +152,9 @@ const jobEffect = effect => ({
 export function jobDetails(root,player,action) {
   const job = JOBS[player.job];
   const title = el('strong','',player.id+' ／ '+job.icon+' '+job.name);
-  root.append(title,el('p','dialog-copy',job.description),
-    el('p','dialog-copy',`HP ${player.hp}/${player.maxHp} ／ ⚡${player.energy}`+
+  const description = job.description+(job.action ? ' 消費エネルギー '+actionCost(player,job.action)+'。' : '');
+  root.append(title,el('p','dialog-copy',description),
+    el('p','dialog-copy',`HP ${player.hp}/${player.maxHp} ／ ⚡${player.energy}/${player.maxEnergy}`+
       (player.cursed ? ' ／ 呪い（通常ガード不可）' : '')));
   if (!action) return;
   root.append(el('strong','',ACTIONS[action.kind].name));
@@ -154,6 +163,7 @@ export function jobDetails(root,player,action) {
 
 
 function effectText(effects) {
+  if (effects.length === 1) return battleEffect(effects[0]);
   const counts = new Map();
   for (const {result} of effects) counts.set(result,(counts.get(result) ?? 0)+1);
   return Object.entries(effectNames).filter(([kind])=>counts.has(kind))
@@ -174,12 +184,14 @@ function playerCard(player,s,round,review,animate,onTarget) {
   const action = last && Object.hasOwn(last,player.id) ? last[player.id] : null;
   const name = el('strong','battle-name',player.id);
   const job = JOBS[player.job];
+  const jobDescription = player.maxEnergy === undefined ? legacyJobDescriptions[player.job] ?? job?.description :
+    job?.description;
   const flag = player.hp === 0 ? '脱落' : !review && !player.online ? '切断' : '';
   const identity = el('div','battle-identity');
   identity.append(name);
   if (job) {
     const badge = el('span','battle-job-badge',job.icon);
-    badge.title = job.name+' ／ '+job.description;
+    badge.title = [job.name,jobDescription].filter(Boolean).join(' ／ ');
     badge.setAttribute('aria-label',job.name);
     identity.append(badge);
     if (player.cursed) {
@@ -196,7 +208,7 @@ function playerCard(player,s,round,review,animate,onTarget) {
   }
   card.append(identity);
   card.append(stat('♥','battle-hp',player.hp,player.maxHp,action?.hpDelta,animate),
-    stat('⚡','battle-energy',player.energy,round.settings.energy,action?.energyDelta,animate));
+    stat('⚡','battle-energy',player.energy,player.maxEnergy ?? round.settings.energy,action?.energyDelta,animate));
   if (review) {
     const move = action && ACTIONS[action.kind];
     const turnAction = move ? [move.icon+' '+move.name,action.target].filter(Boolean).join(' ') : '';
@@ -208,11 +220,11 @@ function playerCard(player,s,round,review,animate,onTarget) {
     ].filter(Boolean).join(' · ') : '';
     if (turnAction) {
       card.append(el('span','battle-turn-action',turnAction),el('span','battle-turn-result',result));
-      card.title = [player.id,turnAction,result,...action.effects.map(effect=>effect.target+' '+(job ? jobEffect(effect) : effectNames[effect.result]))].filter(Boolean).join(' ／ ');
+      card.title = [player.id,turnAction,result,...action.effects.map(effect=>effect.target+' '+(job ? jobEffect(effect) : battleEffect(effect)))].filter(Boolean).join(' ／ ');
     }
   } else card.title = [player.id,flag].filter(Boolean).join(' ／ ');
   if (job) {
-    card.title = [job.name,card.title,job.description].filter(Boolean).join(' ／ ');
+    card.title = [job.name,card.title,jobDescription].filter(Boolean).join(' ／ ');
     if (!onTarget) card.append(el('span','battle-job-name',job.name));
   }
   return card;
