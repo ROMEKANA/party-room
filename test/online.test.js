@@ -1818,6 +1818,8 @@ test('four accepts simultaneous revisions privately and commits one result and o
   assert.equal(watchState.round.animation,undefined);
   assert.equal(watchState.roundPlayers.find(p=>p.id==='B').mark,'done');
   assert.equal((await h.req('state',null,watcher.token,{'X-App-Version':'5.1.0'})).state.round,null);
+  const previousClient = await h.req('state',null,watcher.token,{'X-App-Version':'5.2.0'});
+  assert.equal(previousClient.state.round.id,first.id);
   assert.ok((await Promise.all([host,...extras.slice(0,2)].map(p=>submit(p,0)))).every(r=>r.status===200));
   const animation = (await watcher.state()).round;
   assert.equal(animation.phase,'drop');
