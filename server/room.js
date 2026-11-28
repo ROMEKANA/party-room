@@ -32,6 +32,7 @@ function resetEmpty(s) {
   if (s.battleSettings) s.battleSettings.bossId = null;
   delete s.battleTeams;
   delete s.jobBattleTeams;
+  if (s.fourSettings) delete s.fourSettings.starter;
 }
 export class GameError extends Error {
   constructor(message, status = 409, code = 'invalid') {
@@ -134,6 +135,7 @@ export function alignRoles(s) {
   if (s.game === TIER && hasParent(mode) && setter !== null && parent !== null &&
       parent !== rightNeighbor(memberIds(s),setter)) {
     s.players = moveRolesFirst(s.players,setter,parent);
+    if (s.fourSettings) delete s.fourSettings.starter;
   }
 }
 
@@ -147,6 +149,7 @@ function reconcileNominees(s) {
 
 export const isExpired = (p,now) => p.seen + ONLINE_MS + HOST_GRACE_MS <= now;
 function removeMember(s,p) {
+  if (s.fourSettings) delete s.fourSettings.starter;
   p.left = true;
   p.token = null;
   // Keep a departed match participant available for same-name recovery and legacy match views.
@@ -180,6 +183,7 @@ export function join(s, name, now, token, avatarId) {
   const present = members(s);
   if (!p || p.left) {
     requireGame(present.length < ROOM_MAX, '満員です。同じ名前での復帰は可能です。', 409, 'full');
+    if (s.fourSettings) delete s.fourSettings.starter;
     const used = new Set(present.map(person => person.color));
     const free = Array.from({length:ROOM_MAX}, (_,i) => i).filter(color => !used.has(color));
     const historical = new Set(s.players.map(person => person.color));

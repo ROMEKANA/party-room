@@ -4,10 +4,11 @@ import {playerDisplay} from './player-display.js';
 import {$,button,cardDescription,el,fit} from './board.js';
 import {consensusDetail} from './consensus.js';
 import {historyDetail,historyList} from './history.js';
-import {JOB_BATTLE,isBattle,CIRCLE,NUMBER_CLASH,GAMES,GAME_IDS,HISTORY_MINUTES} from './games.js';
+import {JOB_BATTLE,isBattle,CIRCLE,FOUR,NUMBER_CLASH,GAMES,GAME_IDS,HISTORY_MINUTES} from './games.js';
 import {CIRCLE_RULES,circleSettings} from './circle.js';
 import {BATTLE_RULES,JOB_BATTLE_RULES,battleSettings,jobDetails} from './battle.js';
 import {NUMBER_RULES,numberSettings} from './number-clash.js';
+import {FOUR_RULES,fourSettings} from './four.js';
 import {gameCard} from './party.js';
 import {releaseHistory} from './releases.js';
 
@@ -144,7 +145,7 @@ export function dialogs(getState,send,loadHistory) {
       stablePanels.includes(kind) ? null : r?.version,r?.input?.id,
       ['input','ownCards'].includes(kind) && r?.mode===4 ? r.ownCards : null,
       kind==='settings'?[s?.settings,s?.host,r?.phase,tab===1?s?.players.map(p=>[p.id,p.left]):null,
-        s?.battle,s?.numberSettings,isBattle(s?.game)?s.players:null]:null,
+        s?.battle,s?.numberSettings,s?.fourSettings,isBattle(s?.game) || s?.game===FOUR ? s.players : null]:null,
       ['menu','playerManagement'].includes(kind)?[s?.host,s?.players.map(p=>[p.id,p.online,p.spectator,p.avatarId]),r?.phase]:null,
       kind==='gameList'?[s?.selectedGame,s?.host]:null,
       kind==='commonSettings'?[s?.common,s?.host]:null]);
@@ -394,11 +395,12 @@ export function dialogs(getState,send,loadHistory) {
       actions(button('不正解',()=>done('judge',{win:false})),button('正解',()=>done('judge',{win:true}),'primary'));
     } else if (kind==='battleJobDetail') {
       jobDetails(body,active.data.player,active.data.action);
-    } else if (kind==='settings' && (isBattle(s.game) || s.game===NUMBER_CLASH)) {
+    } else if (kind==='settings' && (isBattle(s.game) || s.game===NUMBER_CLASH || s.game===FOUR)) {
       const tabs = el('div','action-row');
       ['基本','詳細'].forEach((label,i)=>tabs.append(button(label,()=>{tab=i;render(true);},i===tab?'selected control':'control')));
       body.append(tabs);
       if (s.game===NUMBER_CLASH) numberSettings(body,s,act,tab);
+      else if (s.game===FOUR) fourSettings(body,s,act,tab);
       else battleSettings(body,s,act,tab);
       if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
     } else if (kind==='settings' && s.game===CIRCLE) {
@@ -406,9 +408,9 @@ export function dialogs(getState,send,loadHistory) {
     } else if (kind==='settings') {
       tierSettings(body,s,tab,i=>{tab=i;render(true);},patch=>act('settings',{settings:patch}),()=>open('resetHistory'));
       if (s.host===s.me) body.append(button('決定',close,'primary settings-done'));
-    } else if (kind==='rules' && (isBattle(active.game) || active.game===CIRCLE || active.game===NUMBER_CLASH)) {
+    } else if (kind==='rules' && (isBattle(active.game) || active.game===CIRCLE || active.game===NUMBER_CLASH || active.game===FOUR)) {
       const rules = el('dl','circle-settings');
-      for (const [name,description] of active.game===JOB_BATTLE ? JOB_BATTLE_RULES : isBattle(active.game) ? BATTLE_RULES : active.game===NUMBER_CLASH ? NUMBER_RULES : CIRCLE_RULES) rules.append(el('dt','',name),el('dd','',description));
+      for (const [name,description] of active.game===JOB_BATTLE ? JOB_BATTLE_RULES : isBattle(active.game) ? BATTLE_RULES : active.game===NUMBER_CLASH ? NUMBER_RULES : active.game===FOUR ? FOUR_RULES : CIRCLE_RULES) rules.append(el('dt','',name),el('dd','',description));
       body.append(rules);
     } else if (kind==='rules') {
       const pages = [

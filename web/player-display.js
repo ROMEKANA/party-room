@@ -8,7 +8,7 @@ const MARKS = {
 let textContext;
 const graphemes = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('ja',{granularity:'grapheme'}) : null;
 
-export function playerAvatar(player,{self = false,mark} = {}) {
+export function playerAvatar(player,{self = false,mark,marker} = {}) {
   const id = resolveAvatarId(player.avatarId,player.color);
   const icon = el('span','avatar'+(self ? ' self' : ''));
   const image = el('img');
@@ -16,10 +16,17 @@ export function playerAvatar(player,{self = false,mark} = {}) {
   image.alt = '';
   image.draggable = false;
   icon.append(image);
-  if (mark != null) {
-    const [symbol,label] = Object.hasOwn(MARKS,mark) ? MARKS[mark] : [mark,'進捗 '+mark];
+  if (mark != null || marker) {
+    const [symbol,status] = mark == null ? ['',''] :
+      Object.hasOwn(MARKS,mark) ? MARKS[mark] : [mark,'進捗 '+mark];
+    const label = [marker?.label,status].filter(Boolean).join('・');
     const badge = el('span','mark',symbol);
-    badge.dataset.status = mark;
+    if (mark != null) badge.dataset.status = mark;
+    if (marker) {
+      badge.classList.add('colored-mark');
+      badge.style.setProperty('--marker-color',marker.color);
+      badge.style.setProperty('--marker-ink',marker.ink);
+    }
     badge.title = label;
     badge.setAttribute('aria-label',label);
     icon.append(badge);
@@ -48,7 +55,7 @@ function label(cls,value,weight,wrap = false) {
 }
 
 export function playerDisplay(player,options = {}) {
-  const {id,roles = [],score,mark,online} = player;
+  const {id,roles = [],score,mark,marker,online} = player;
   const selected = options.selected === id;
   const person = options.select ? button('',()=>options.select(id),'person player-tab') : el('div','person');
   person.classList.toggle('offline',online === false);
@@ -60,7 +67,7 @@ export function playerDisplay(player,options = {}) {
   const content = el('span','player-content');
   // Room for an icon, the line heights at their font ratios, and the gaps.
   content.style.setProperty('--player-units',1.56+(roles.length ? .53 : 0)+(score != null ? .50 : 0));
-  content.append(playerAvatar(player,{self:id === options.me,mark}),label('player-name',id,700,true));
+  content.append(playerAvatar(player,{self:id === options.me,mark,marker}),label('player-name',id,700,true));
   if (roles.length) content.append(label('roles',roles.join('・'),700));
   if (score != null) {
     const points = label('player-score',score,750);

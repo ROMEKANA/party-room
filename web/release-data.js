@@ -1,4 +1,4 @@
-import {BATTLE,JOB_BATTLE,CIRCLE,NUMBER_CLASH,TIER,GAME_IDS} from './games.js';
+import {BATTLE,JOB_BATTLE,CIRCLE,FOUR,NUMBER_CLASH,TIER,GAME_IDS} from './games.js';
 import {VERSION} from './version.js';
 
 const legacyReleases = [
@@ -82,11 +82,15 @@ const legacyReleases = [
 ];
 
 const releases = [
-  {version:VERSION,title:'プレイヤーアイコンと表示UIを刷新',changes:[
+  {version:VERSION,title:'『せーので四目』を追加',changes:[
+    {description:'2〜4人で列を同時に選び、ターンごとに変わる順番でコマを落とします。タテ・ヨコ・ナナメに先に4つつなげた人の勝ちです。',gameIds:[FOUR]},
+    {description:'6×6〜9×9の盤面に対応し、対戦履歴で最終盤面と勝利したコマの並びを確認できます。',gameIds:[FOUR]},
+  ]},
+  {version:'5.1.0',title:'プレイヤーアイコンと表示UIを刷新',changes:[
     {description:'10種類のイラストから、入室前にプレイヤーアイコンを選べるようにしました。',gameIds:[]},
     {description:'新規入室時の名前は最大8文字になりました。',gameIds:[]},
-    {description:'プレイヤー名とホスト・親などの属性を、画面の広さに合わせて読みやすく表示します。',gameIds:GAME_IDS},
-    {description:'全ゲームのプレイヤー表示を統一し、行動済みのチェックはアイコンの右下に表示します。',gameIds:GAME_IDS},
+    {description:'プレイヤー名とホスト・親などの属性を、画面の広さに合わせて読みやすく表示します。',gameIds:GAME_IDS.filter(id=>id!==FOUR)},
+    {description:'全ゲームのプレイヤー表示を統一し、行動済みのチェックはアイコンの右下に表示します。',gameIds:GAME_IDS.filter(id=>id!==FOUR)},
   ]},
   {version:'5.0.0',title:'『ナンバークラッシュ』を追加',changes:[
     {description:'2〜6人で、手札から数字カードを同時に出す心理戦を遊べます。手札は9枚・12枚・15枚から選べます。',gameIds:[NUMBER_CLASH]},

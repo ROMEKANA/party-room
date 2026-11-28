@@ -328,3 +328,86 @@ nav button{padding-inline:6px}
 .number-rank-person{display:flex;min-width:0;align-items:center;gap:6px}
 .number-rank-person .avatar{flex:none}
 .number-rank-place,.number-rank-score{font-weight:750;font-variant-numeric:tabular-nums}
+
+.avatar .colored-mark {
+  width:1.42em; min-width:0; padding:0;
+  background:var(--marker-color); color:var(--marker-ink);
+  border-color:#fff; outline:1px solid #263946;
+}
+.four-play {
+  display:flex; flex:1; min-height:0; flex-direction:column;
+  gap:clamp(4px,1.2dvh,10px);
+}
+.four-play .battle-turn {flex:none}
+.four-stage {
+  container-type:size; flex:1; min-height:0; min-width:0;
+  display:flex; align-items:center; flex-direction:column;
+  --four-controls:clamp(36px,7dvh,52px);
+  --four-width:min(100cqw,max(0px,calc(100cqh - var(--four-controls))));
+}
+.four-stage.four-final {
+  --four-controls:0px;
+  justify-content:center;
+}
+.dialog .four-stage.four-final {flex:none; height:min(84vw,54dvh,440px)}
+.four-columns {
+  width:var(--four-width); height:var(--four-controls); flex:none;
+  display:grid; grid-template-columns:repeat(var(--four-size),minmax(0,1fr));
+}
+.four-choice {
+  display:grid; place-items:center; min-width:0; padding:0;
+  border:1px solid transparent; border-radius:6px;
+  background:transparent; color:#192630; touch-action:manipulation;
+}
+.four-choice:focus-visible {outline-offset:-3px}
+.four-arrow {
+  display:grid; place-items:center; width: min(100%,1.45em); aspect-ratio:1;
+  font-size:clamp(18px,4.6vw,26px); line-height:1; border-radius:6px;
+  background:#fff; color:#252b30;
+}
+.four-choice[aria-pressed=true] .four-arrow {color:#000; font-size:clamp(21px,5.4vw,32px)}
+.four-board {
+  position:relative; isolation:isolate; width:var(--four-width); aspect-ratio:1; flex:none;
+  display:grid; grid-template-rows:repeat(var(--four-size),minmax(0,1fr));
+  border-radius:clamp(8px,2vw,15px);
+  background:#284c68;
+  --four-cell:calc(100% / var(--four-size));
+  --four-piece-size:calc(var(--four-cell) * .78);
+}
+.four-row {display:grid; grid-template-columns:repeat(var(--four-size),minmax(0,1fr))}
+.four-cell {display:grid; place-items:center; min-width:0; min-height:0}
+.four-piece {
+  display:block; width:78%; aspect-ratio:1; border-radius:50%; background:#e3ecf2;
+  box-shadow:inset 0 1px 3px #0005;
+}
+.four-piece[data-piece=blue] {background:#175bcc}
+.four-piece[data-piece=red] {background:#d12d47}
+.four-piece[data-piece=green] {background:#11804d}
+.four-piece[data-piece=yellow] {background:#ffcf32}
+.four-piece:not([data-piece=""]) {box-shadow:inset 0 0 0 1px #fff8,inset 0 -3px 0 #0003}
+.four-winning .four-piece {
+  box-shadow:0 0 0 2px #fff,0 0 0 4px #fcde68,inset 0 0 0 2px #161e26;
+}
+.four-falling {
+  position:absolute; pointer-events:none; z-index:1; width:var(--four-piece-size);
+  left:calc((var(--drop-column) + .11) * var(--four-cell));
+  top:calc((var(--drop-row) + .11) * var(--four-cell));
+  --drop-distance:calc((var(--drop-row) + 1) * -128.205%);
+  animation:four-drop var(--drop-duration) cubic-bezier(.45,0,.8,1) var(--drop-delay) both;
+}
+.four-discarded {animation-name:four-miss}
+@keyframes four-drop {
+  from {transform:translateY(var(--drop-distance))}
+  to {transform:translateY(0)}
+}
+@keyframes four-miss {
+  from {transform:translateY(-48%); opacity:1}
+  65% {opacity:1}
+  to {transform:translateY(58%); opacity:0}
+}
+.four-winner {margin:0; text-align:center; font-size:clamp(20px,5vw,30px); overflow-wrap:anywhere}
+.four-art {background:#284c68}
+.four-art-grid {
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); align-items:center; justify-items:center;
+  height:82%; max-width:80%; aspect-ratio:1;
+}

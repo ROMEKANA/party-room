@@ -6,7 +6,7 @@ import worker from '../dist/server/index.js';
 import {releaseEntries} from '../web/release-data.js';
 import {VERSION} from '../web/version.js';
 import {PLAYER_AVATARS} from '../web/player-profile.js';
-import {GAMES} from '../web/games.js';
+import {FOUR,GAMES} from '../web/games.js';
 import {api} from '../server/api.js';
 import {shuffle} from '../server/draw.js';
 
@@ -1325,22 +1325,25 @@ test('update information keeps every past release and filters shared changes by 
   const all = releaseEntries();
   const tier = releaseEntries('tier');
   const circle = releaseEntries('circle-cross');
-  assert.deepEqual(tier.map(entry=>entry.version),[VERSION,...all.slice(7).map(entry=>entry.version)]);
-  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[VERSION,'3.0.0']);
-  assert.deepEqual(circle.map(entry=>entry.version),[VERSION,'2.0.2','2.0.0']);
+  const avatarRelease = '5.1.0';
+  assert.deepEqual(tier.map(entry=>entry.version),[avatarRelease,...all.slice(8).map(entry=>entry.version)]);
+  assert.deepEqual(releaseEntries('unknown-battle').map(entry=>entry.version),[avatarRelease,'3.0.0']);
+  assert.deepEqual(circle.map(entry=>entry.version),[avatarRelease,'2.0.2','2.0.0']);
   assert.equal(all[0].version,VERSION);
-  assert.equal(all[0].title,'プレイヤーアイコンと表示UIを刷新');
-  assert.equal(all[1].title,'『ナンバークラッシュ』を追加');
-  assert.deepEqual(releaseEntries('number-clash').map(entry=>entry.version),[VERSION,'5.0.0']);
-  assert.equal(all[2].version,'4.1.1');
-  assert.equal(all[2].title,'ホーム画面用のアプリアイコン・名称を追加');
-  assert.ok(all[2].changes.every(change=>change.gameIds.length===0));
-  assert.equal(all[3].title,'「真・名前の知らないあのゲーム」に表記を統一');
-  assert.equal(all[4].title,'「真・名前の知らないあのゲーム」を追加');
-  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[VERSION,'4.0.1','4.0.0']);
-  assert.equal(all[5].title,'『名前の知らないあのゲーム』を追加');
-  assert.equal(all[6].version,'2.0.3');
-  assert.ok(all[6].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[0].title,'『せーので四目』を追加');
+  assert.deepEqual(releaseEntries(FOUR).map(entry=>entry.version),[VERSION]);
+  assert.equal(all[1].title,'プレイヤーアイコンと表示UIを刷新');
+  assert.equal(all[2].title,'『ナンバークラッシュ』を追加');
+  assert.deepEqual(releaseEntries('number-clash').map(entry=>entry.version),[avatarRelease,'5.0.0']);
+  assert.equal(all[3].version,'4.1.1');
+  assert.equal(all[3].title,'ホーム画面用のアプリアイコン・名称を追加');
+  assert.ok(all[3].changes.every(change=>change.gameIds.length===0));
+  assert.equal(all[4].title,'「真・名前の知らないあのゲーム」に表記を統一');
+  assert.equal(all[5].title,'「真・名前の知らないあのゲーム」を追加');
+  assert.deepEqual(releaseEntries('job-battle').map(entry=>entry.version),[avatarRelease,'4.0.1','4.0.0']);
+  assert.equal(all[6].title,'『名前の知らないあのゲーム』を追加');
+  assert.equal(all[7].version,'2.0.3');
+  assert.ok(all[7].changes.every(change=>change.gameIds.length===0));
   assert.equal(tier[1].version,'2.0.2');
   assert.equal(tier[2].version,'2.0.1');
   const previous = tier.find(entry=>entry.version==='2.0.0');
@@ -1776,4 +1779,134 @@ test('old long names and avatar-less clients can resume an existing match',async
   assert.equal(explicit.status,200);
   assert.equal((await host.state()).roundPlayers[1].avatarId,'ghost');
   assert.equal((await h.req('join',{name:oldName+'別'})).status,400);
+});
+
+test('four accepts simultaneous revisions privately and commits one result and one history record',async()=>{
+  const h = harness();
+  const host = await h.join('A','wolf');
+  assert.equal((await host.send('browse',{choice:FOUR})).status,200);
+  assert.equal((await host.send('choose',{choice:FOUR})).status,200);
+  assert.equal((await host.send('start')).status,409);
+  assert.deepEqual((await host.state()).fourSettings,{starter:'A',size:7,seconds:10,readyMs:1000,dropMs:500});
+  let guest = await h.join('B');
+  const extras = [];
+  for (const name of ['C','D','E']) extras.push(await h.join(name));
+  const watcher = extras[2];
+  assert.equal((await watcher.state()).players.find(p=>p.id==='E').spectator,true);
+  assert.equal((await host.send('settings',{settings:{starter:'E'}})).status,400);
+  assert.equal((await host.send('settings',{settings:{starter:'B',size:9,readyMs:500,seconds:1}})).status,200);
+  assert.equal((await host.send('start')).status,200);
+  const first = (await host.state()).round;
+  assert.deepEqual(first.order,['B','C','D','A']);
+  assert.equal(first.board.length,9);
+  assert.deepEqual(first.pieces,{B:'blue',C:'red',D:'green',A:'yellow'});
+  const submit = (p,column,sequence=1,round=first)=>
+    p.send('fourColumn',{column,sequence,turn:round.turn},round);
+  assert.equal((await submit(host,1)).code,'fourClosed');
+  h.advance(500);
+  assert.equal((await submit(watcher,1)).status,403);
+  assert.equal((await submit(guest,1)).status,200);
+  const guestBefore = guest;
+  guest = await h.join('B','lemon');
+  assert.equal((await guestBefore.get()).status,401);
+  assert.deepEqual((await guest.state()).round.own,{column:1,sequence:1});
+  assert.equal((await submit(guest,0,3)).status,200);
+  assert.equal((await submit(guest,2,2)).status,200);
+  const watchState = await watcher.state();
+  assert.equal(watchState.round.own,undefined);
+  assert.equal(watchState.round.moves,undefined);
+  assert.equal(watchState.round.animation,undefined);
+  assert.equal(watchState.roundPlayers.find(p=>p.id==='B').mark,'done');
+  assert.equal((await h.req('state',null,watcher.token,{'X-App-Version':'5.1.0'})).state.round,null);
+  assert.ok((await Promise.all([host,...extras.slice(0,2)].map(p=>submit(p,0)))).every(r=>r.status===200));
+  const animation = (await watcher.state()).round;
+  assert.equal(animation.phase,'drop');
+  assert.deepEqual(animation.animation.drops.map(({id,column,row})=>[id,column,row]),
+    [['B',0,8],['C',0,7],['D',0,6],['A',0,5]]);
+  assert.equal((await submit(guest,3,4)).code,'fourClosed');
+  const animationGuest = await h.join('B','lemon');
+  guest = animationGuest;
+  assert.deepEqual((await animationGuest.state()).round.board,animation.board);
+  h.advance(1999);
+  assert.equal((await host.state()).round.phase,'drop');
+  h.advance(1);
+  const second = await host.state();
+  assert.equal(second.round.phase,'select');
+  assert.deepEqual(second.round.order,['C','D','A','B']);
+  assert.ok(second.roundPlayers.every(p=>p.mark===null));
+  assert.equal((await submit(guest,3,4)).code,'fourClosed');
+
+  h.advance(1000);
+  const [late,watch] = await Promise.all([submit(host,4,1,second.round),watcher.state()]);
+  assert.equal(late.code,'fourClosed');
+  assert.equal(watch.round.phase,'drop');
+  assert.equal(watch.round.animation.drops.length,4);
+  assert.deepEqual((await host.state()).round,watch.round);
+  h.advance(2000);
+
+  // A controlled late-game board makes the final request exercise the real D1 history path.
+  const raw = h.raw();
+  raw.round.board = Array.from({length:9},()=>Array(9).fill(null));
+  for (let r=6;r<=8;r++) raw.round.board[r][0] = 'green';
+  h.sqlite.prepare('UPDATE room SET state=? WHERE id=1').run(JSON.stringify(raw));
+  const finalTurn = (await host.state()).round;
+  assert.equal(finalTurn.order[0],'D');
+  const players = [host,guest,...extras.slice(0,2)];
+  assert.ok((await Promise.all(players.map(p=>submit(p,p.name==='D' ? 0 : 1,1,finalTurn))))
+    .every(r=>r.status===200));
+  const finalDrop = (await host.state()).round;
+  assert.equal(finalDrop.animation.drops.length,1);
+  assert.equal(finalDrop.outcome.winner,'D');
+  assert.equal((await host.history()).record.length,0);
+  h.advance(500);
+  const [result,observer] = await Promise.all([host.state(),watcher.state()]);
+  assert.equal(result.round.phase,'result');
+  assert.deepEqual(result.round,observer.round);
+  const records = (await host.history()).record;
+  assert.equal(records.length,1);
+  const {record} = await host.history(finalTurn.id);
+  assert.deepEqual(record.board,result.round.board);
+  assert.deepEqual(record.pieces,first.pieces);
+  assert.deepEqual(record.line,result.round.outcome.line);
+  assert.equal(record.winner,'D');
+  assert.equal(record.settings.starter,'B');
+  assert.equal(record.roster.find(p=>p.id==='B').avatarId,'cat');
+  assert.equal(record.animation,undefined);
+  assert.equal((await h.req('history?game=tier',null,host.token)).record.length,0);
+  assert.equal((await h.req('history/'+finalTurn.id,null,host.token,{'X-App-Version':'5.1.0'})).status,409);
+});
+
+test('four resets starter on roster changes and advances without a departed player in unlimited mode',async()=>{
+  const h = harness();
+  const host = await h.join('A');
+  const guest = await h.join('B');
+  await host.send('browse',{choice:FOUR});
+  await host.send('choose',{choice:FOUR});
+  await host.send('settings',{settings:{starter:'B',seconds:null,readyMs:500}});
+  const extra = await h.join('C');
+  assert.equal((await host.state()).fourSettings.starter,'A');
+  await host.send('settings',{settings:{starter:'C'}});
+  await guest.send('leave');
+  assert.equal((await host.state()).fourSettings.starter,'A');
+
+  await host.send('settings',{settings:{starter:'C'}});
+  // Make a shuffle deterministic without changing global randomness for the rest of the suite.
+  const random = Math.random;
+  try {
+    Math.random = ()=>0;
+    await host.send('shuffle');
+  } finally {
+    Math.random = random;
+  }
+  let s = await host.state();
+  assert.deepEqual(s.players.map(p=>p.id),['C','A']);
+  assert.equal(s.fourSettings.starter,'C');
+  assert.equal(Object.hasOwn(h.raw().fourSettings,'starter'),false);
+  assert.equal((await host.send('start')).status,200);
+  h.advance(500);
+  s = await host.state();
+  await host.send('fourColumn',{turn:1,column:0,sequence:1},s.round);
+  assert.equal((await host.state()).round.phase,'select');
+  await extra.send('leave');
+  assert.equal((await host.state()).round.phase,'drop');
 });

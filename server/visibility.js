@@ -3,11 +3,13 @@ import {currentInput, lifeStatus, orderedCards} from './round.js';
 import {consensusProgress,consensusView} from './consensus.js';
 import {currentCardId} from './placement.js';
 import {judgeId} from './mode23.js';
-import {isBattle,CIRCLE,NUMBER_CLASH,TIER} from '../web/games.js';
+import {isBattle,CIRCLE,FOUR,NUMBER_CLASH,TIER} from '../web/games.js';
 import {currentStartProblem} from './game.js';
 import {view as circleView} from './circle.js';
 import {battleView} from './battle.js';
 import {numberView} from './number-clash.js';
+import {fourView} from './four.js';
+import {FOUR_DEFAULTS} from '../web/four-rules.js';
 import {NUMBER_DEFAULTS} from '../web/number-clash-rules.js';
 import {resolveAvatarId} from '../web/player-profile.js';
 import {DEFAULTS,TIERS} from '../web/config.js';
@@ -53,6 +55,18 @@ export function visible(s, id, now) {
     state.battle = battleRoster(s);
     if (s.round) {
       state.round = battleView(s.round,id,roundPlayers(s,now));
+    }
+    return state;
+  }
+  if (s.game === FOUR) {
+    state.fourSettings = {starter:gameMembers(s)[0]?.id ?? null,...FOUR_DEFAULTS,...s.fourSettings};
+    if (s.round) {
+      const round = s.round;
+      state.round = fourView(round,id);
+      state.roundPlayers = roundPlayers(s,now).map(p=>({
+        ...p, mark:active && (round.phase === 'drop' ? round.submitted.includes(p.id) :
+          Object.hasOwn(round.moves,p.id)) ? 'done' : null,
+      }));
     }
     return state;
   }

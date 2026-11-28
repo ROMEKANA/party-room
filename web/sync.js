@@ -144,10 +144,10 @@ export function connect(onState,onError,onClose,onUpdate) {
       }
     },
     async send(type,fields = {},base = state?.round) {
-      const battleMove = type === 'battleMove';
-      if (!token || (!battleMove && pending) || (available() && !state?.playing && type !== 'leave')) return false;
+      const independentMove = type === 'battleMove' || type === 'fourColumn';
+      if (!token || (!independentMove && pending) || (available() && !state?.playing && type !== 'leave')) return false;
       const g = generation;
-      if (!battleMove) pending = true;
+      if (!independentMove) pending = true;
       const payload = {id:makeId(),type,game:state.game,scope:state.scope,
         round:base?.id??null,version:base?.version??0,
         ...(base?.draftRevision != null ? {draftRevision:base.draftRevision} : {}),...fields};
@@ -166,14 +166,14 @@ export function connect(onState,onError,onClose,onUpdate) {
       } catch (error) {
         if (g !== generation) return false;
         if (error.code === 'disconnected') stop(error.message);
-        else if (battleMove && ['battleClosed','stale'].includes(error.code)) schedule(0);
+        else if (independentMove && ['battleClosed','fourClosed','stale'].includes(error.code)) schedule(0);
         else if (error.code === 'updateRequired' || error.code === 'stale') {
           onError(error.message,false);
           schedule(0);
         } else onError(error.code ? error.message : '通信できませんでした。接続を確認してください。',false);
         return false;
       } finally {
-        if (g === generation && !battleMove) pending = false;
+        if (g === generation && !independentMove) pending = false;
       }
     },
   };

@@ -2,17 +2,19 @@ import {action,checkScope} from './game.js';
 import {readHistory} from './history.js';
 import {GameError, HEARTBEAT_MS, connected, isExpired, join, members, playing, reconcile, requireGame} from './room.js';
 import {update} from './store.js';
-import {BATTLE,JOB_BATTLE,GAME_IDS,NUMBER_CLASH,TIER,isBattle} from '../web/games.js';
+import {BATTLE,JOB_BATTLE,GAME_IDS,FOUR,NUMBER_CLASH,TIER,isBattle} from '../web/games.js';
 import {VERSION,newerVersion} from '../web/version.js';
 import {visible} from './visibility.js';
 import {advanceBattle} from './battle.js';
 import {advanceNumberClash} from './number-clash.js';
+import {advanceFour} from './four.js';
 
 function progressTurn(s,now) {
-  if (!s.round || !(isBattle(s.game) || s.game === NUMBER_CLASH)) return;
+  if (!s.round || !(isBattle(s.game) || s.game === NUMBER_CLASH || s.game === FOUR)) return;
   const present = new Set(members(s).map(p => p.id));
   const departed = new Set(s.round.ids.filter(id => !present.has(id)));
   if (s.game === NUMBER_CLASH) advanceNumberClash(s.round,now,departed);
+  else if (s.game === FOUR) advanceFour(s.round,now,departed);
   else advanceBattle(s.round,now,departed);
 }
 
@@ -22,7 +24,8 @@ export async function api(request, db, now = Date.now()) {
   const clientVersion = request.headers.get('X-App-Version');
   const unsupported = game => (game === JOB_BATTLE && (!clientVersion || newerVersion('5.0.0',clientVersion))) ||
     (game === BATTLE && clientVersion && newerVersion('3.0.0',clientVersion)) ||
-    (game === NUMBER_CLASH && (!clientVersion || newerVersion('5.0.0',clientVersion)));
+    (game === NUMBER_CLASH && (!clientVersion || newerVersion('5.0.0',clientVersion))) ||
+    (game === FOUR && (!clientVersion || newerVersion('5.2.0',clientVersion)));
   try {
     if (path === '/api/version' && request.method === 'GET') return json({version:VERSION});
     if (path === '/api/join' && request.method === 'POST') {
@@ -70,7 +73,7 @@ export async function api(request, db, now = Date.now()) {
             try {
               action(s,p,a,now,clientVersion);
             } catch (error) {
-              if (!['battleMove','numberCard'].includes(a.type) || !(error instanceof GameError)) throw error;
+              if (!['battleMove','numberCard','fourColumn'].includes(a.type) || !(error instanceof GameError)) throw error;
               // A late or invalid action can still move a deadline forward for everyone.
               return {error};
             }
@@ -124,10 +127,9 @@ function reply({state,revision},id,now,unsupported,extra={}) {
   if (unsupported(view.game)) {
     Object.assign(view,{game:null,round:null,playing:false});
     delete view.battle;
-    if (view.numberSettings) {
-      delete view.numberSettings;
-      delete view.roundPlayers;
-    }
+    if (view.numberSettings || view.fourSettings) delete view.roundPlayers;
+    delete view.numberSettings;
+    delete view.fourSettings;
   }
   if (unsupported(view.selectedGame)) view.selectedGame = TIER;
   return json({revision,at:now,version:VERSION,online:onlineMask(state,now),state:view,...extra});

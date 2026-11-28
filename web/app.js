@@ -5,18 +5,20 @@ import {PLAYER_NAME_ERROR,normalizePlayerName,resolveAvatarId,validPlayerName} f
 import {avatarPicker,renderPlayers} from './player-display.js';
 import {consensusBoard,consensusCount,consensusOutcome} from './consensus.js';
 import {placementProblem,remainingCards} from './placement.js';
-import {isBattle,CIRCLE,NUMBER_CLASH,GAMES,TIER} from './games.js';
+import {isBattle,CIRCLE,FOUR,NUMBER_CLASH,GAMES,TIER} from './games.js';
 import {VERSION} from './version.js';
 import {lobby} from './party.js';
 import {circlePlay,circleSettings} from './circle.js';
 import {battlePlayerMark,battleSettings,battleUI} from './battle.js';
 import {numberClashUI,numberSettings} from './number-clash.js';
+import {fourPlayer,fourResult,fourSettings,fourUI} from './four.js';
 import {dialogs,tierSettings} from './dialogs.js';
 
 let state = null, lastScreen = '', joining = false;
 let resultRound, resultPlayer;
 const renderBattle = battleUI();
 const numberClash = numberClashUI();
+const four = fourUI();
 let ownBoardRound, ownCardsHidden = false;
 const panel = dialogs(()=>state,(...args)=>sync.send(...args),(id,game)=>sync.history(id,game));
 const sync = connect((next,previous) => {
@@ -128,7 +130,8 @@ function renderRoomPlayers(s,select) {
     const mark = fighter ? battlePlayerMark(round,fighter) : player.mark;
     const scores = round?.scores;
     const score = !spectator && scores && Object.hasOwn(scores,id) ? scores[id] : undefined;
-    return {...player,roles,mark,score};
+    const entry = {...player,roles,mark,score};
+    return game === FOUR && round ? fourPlayer(entry,round.pieces,s.playing ? round.order : []) : entry;
   });
   renderPlayers($('players'),players,{me,select,selected:resultPlayer,selectionLabel:id=>id+'のTier表'});
 }
@@ -149,6 +152,8 @@ function render() {
   document.querySelector('.app').classList.toggle('party-layout',Boolean(state && !tierBoard));
   const numberGame = state?.game === NUMBER_CLASH;
   if (!numberGame || !r) numberClash.reset();
+  const fourGame = state?.game === FOUR;
+  if (!fourGame || !state?.playing) four.reset();
   if (!state) {
     lastScreen = '';
     notice('');
@@ -165,6 +170,14 @@ function render() {
       renderRoomPlayers(s);
       const root = $('party');
       const send = (...args)=>sync.send(...args);
+      if (fourGame && s.playing) {
+        root.className = 'party-screen four-screen';
+        if (root.dataset.fourMatch !== r.id) root.replaceChildren();
+        root.dataset.fourMatch = r.id;
+        four.render(root,s,send,sync.serverNow);
+        panel.render();
+        return;
+      }
       if (numberGame && s.playing) {
         root.className = 'party-screen number-screen';
         if (root.dataset.numberMatch !== r.id) root.replaceChildren();
@@ -174,16 +187,17 @@ function render() {
         return;
       }
       delete root.dataset.numberMatch;
+      delete root.dataset.fourMatch;
       root.replaceChildren();
       const battle = isBattle(s.game);
-      const roundClass = battle?'battle-screen':numberGame?'number-results':'circle-screen';
+      const roundClass = battle?'battle-screen':numberGame?'number-results':fourGame?'four-results':'circle-screen';
       root.className = 'party-screen '+(!s.game?'lobby-screen':r?roundClass:'setup-screen');
       if (!s.game) lobby(root,s,send,(...args)=>panel.open(...args));
       else {
         const host = s.me===s.host;
         const title = el('h1','party-title',GAMES[s.game].title);
         if (watching) title.append(el('span','spectator-status','観戦中'));
-        if (!battle || !r || watching) root.append(title);
+        if (!r || (!battle && !fourGame) || watching) root.append(title);
         if (watching && !r) root.append(el('p','deck-message','空きができると順番に参加します。'));
         if (battle) {
           if (r) renderBattle(root,s,send,sync.serverNow,panel.open);
@@ -191,6 +205,9 @@ function render() {
         } else if (numberGame) {
           if (r) numberClash.render(root,s,send,sync.serverNow);
           else numberSettings(root,s,send);
+        } else if (fourGame) {
+          if (r) fourResult(root,r);
+          else fourSettings(root,s,send);
         } else if (r) circlePlay(root,r,send,host);
         else if (s.game===CIRCLE) circleSettings(root,s);
         else {

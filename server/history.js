@@ -3,7 +3,7 @@ import {resolveAvatarId} from '../web/player-profile.js';
 import {MODES} from '../web/config.js';
 import {lifeStatus, orderedCards} from './round.js';
 
-import {isBattle,CIRCLE,NUMBER_CLASH,TIER} from '../web/games.js';
+import {isBattle,CIRCLE,FOUR,NUMBER_CLASH,TIER} from '../web/games.js';
 import {view as circleView} from './circle.js';
 
 import {battleView} from './battle.js';
@@ -35,6 +35,11 @@ export function snapshot(s, now) {
     const summary = {...header,mode:r.settings.mode,turn:r.turn,outcome:r.outcome};
     const {settings,players,boss,previous} = battleView(r,null);
     return {summary,detail:{...summary,settings,players,boss,previous,roster}};
+  }
+  if (s.game === FOUR) {
+    const summary = {...header,winner:r.outcome.winner};
+    const detail = {...summary,settings:r.settings,roster,pieces:r.pieces,board:r.board,line:r.outcome.line};
+    return {summary,detail};
   }
   if (s.game === NUMBER_CLASH) {
     return {summary:header,detail:{...header,settings:numberSettingsSummary(r.settings),ranking:numberRankings(r),roster}};

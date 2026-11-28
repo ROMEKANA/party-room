@@ -1,7 +1,8 @@
-import {isBattle,CIRCLE,NUMBER_CLASH,GAMES,TIER} from './games.js';
+import {isBattle,CIRCLE,FOUR,NUMBER_CLASH,GAMES,TIER} from './games.js';
 import {BATTLE_MODES} from './battle-rules.js';
 import {battleHistory,battleOutcome} from './battle.js';
 import {numberHistory} from './number-clash.js';
+import {fourHistory,fourPlayer,fourResultLabel} from './four.js';
 import {circleTable} from './circle.js';
 import {consensusBoard,consensusCount,consensusOutcome} from './consensus.js';
 import {MODES} from './config.js';
@@ -31,6 +32,12 @@ export function historyList(body,records,select,scrollTop) {
       list.append(row);
       continue;
     }
+    if (record.gameId===FOUR) {
+      row.append(timestamp,el('span','history-game',game.title),
+        el('strong','history-topic',fourResultLabel(record.winner)),el('span','history-meta',record.count+'人'));
+      list.append(row);
+      continue;
+    }
     const battle = isBattle(record.gameId);
     row.append(timestamp,el('span','history-game',(battle?'⚡ ':circle?'○× ':'▤ ')+game.title),
       el('strong','history-topic',battle?battleOutcome(record.outcome):circle?record.winner+'の勝利':record.topic),
@@ -47,6 +54,10 @@ export function historyDetail(body,record,me,card,selectCard,selectedPlayer,sele
   const roster = el('section','players');
   roster.setAttribute('aria-label','対戦時の参加者');
   body.append(roster);
+  if (record.gameId===FOUR) {
+    renderPlayers(roster,record.roster.map(p=>fourPlayer(p,record.pieces)),{me});
+    return fourHistory(body,record);
+  }
   if (isBattle(record.gameId)) {
     renderPlayers(roster,record.roster ?? record.players.map(({id,color})=>({id,color})),{me});
     return battleHistory(body,record);

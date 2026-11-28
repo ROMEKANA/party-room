@@ -1,7 +1,7 @@
 import {NUMBER_CHOICES,handCards,pointCards} from '../web/number-clash-rules.js';
 import {shuffle} from './draw.js';
 import {requireGame} from './room.js';
-import {advanceTimedSelection,beginTimedTurn} from './timed-turn.js';
+import {advanceTimedSelection,beginTimedTurn,recordTimedMove} from './timed-turn.js';
 
 export function numberSettings(current, patch) {
   requireGame(patch && typeof patch === 'object' && !Array.isArray(patch),'設定が無効です。',400);
@@ -36,11 +36,11 @@ export function submitNumberCard(round, id, request, now) {
   'このターンの受付は終了しました。',409,'numberClosed');
   const player = round.players.find(entry=>entry.id===id);
   requireGame(player,'観戦中はカードを選べません。',403,'forbidden');
-  requireGame(Number.isSafeInteger(request.sequence) && request.sequence > 0,'選択順序が無効です。',400);
-  if (Object.hasOwn(round.moves,id) && round.moves[id].sequence >= request.sequence) return;
-  requireGame(player.unused.includes(request.card),'使用できる手札を選んでください。',400,'numberInvalid');
-  Object.defineProperty(round.moves,id,{value:{card:request.card,sequence:request.sequence},enumerable:true,configurable:true});
-  round.version++;
+  const changed = recordTimedMove(round,id,request.sequence,()=>{
+    requireGame(player.unused.includes(request.card),'使用できる手札を選んでください。',400,'numberInvalid');
+    return {card:request.card};
+  });
+  if (!changed) return;
   // Once the last player submits, requests arriving during the grace period cannot change the selection.
   if (round.players.every(entry=>Object.hasOwn(round.moves,entry.id))) round.locked = true;
 }
